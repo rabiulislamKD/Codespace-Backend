@@ -64,14 +64,21 @@ function buildAndroidCommand({ workDir, configPath, binaryPath, model = '', sess
   return fn(shQuote, workDir, { absolutePath: configPath }, { TERMUX_OPCODE_PATH: binaryPath }, model, sessionId, { optBoolean: () => auto }, prompt);
 }
 
-/* Run the exact Termux wrapper the app uses: bash -lc "( <command> ) > out 2> err; echo $? > exit". */
-function runInTermux(command, { base, env = {} }) {
-  const wrapped = "( " + command + " ) > '" + path.join(base, 'stdout') + "' 2> '" + path.join(base, 'stderr') + "'; echo $? > '" + path.join(base, 'exit') + "'";
-  execFileSync('bash', ['-lc', wrapped], { env: { ...process.env, ...env } });
+/* Run the exact Termux wrapper the app uses. Mirrors AndroidOpenCodeRuntime.startRun v44: the
+ * shell starts in Termux home, writes a start marker with its PID, `cd`s into the workspace
+ * (reporting exit 78 when it cannot), redirects the command output, and ALWAYS writes the exit
+ * code — so a failed launch can never leave the task polling forever. */
+function runInTermux(command, { base, workDir, env = {} }) {
+  const start = path.join(base, 'start');
+  const out = path.join(base, 'stdout');
+  const err = path.join(base, 'stderr');
+  const exit = path.join(base, 'exit');
+  const wrapped = "echo $$ > '" + start + "'; ( cd " + shQuote(workDir) + " || { echo CODESPACE_WORKSPACE_UNREACHABLE >&2; exit 78; } ; " + command + " ) > '" + out + "' 2> '" + err + "'; echo $? > '" + exit + "'";
+  execFileSync('bash', ['-lc', wrapped], { cwd: base, env: { ...process.env, ...env } });
   return {
-    exit: fs.readFileSync(path.join(base, 'exit'), 'utf8').trim(),
-    stdout: fs.readFileSync(path.join(base, 'stdout'), 'utf8'),
-    stderr: fs.readFileSync(path.join(base, 'stderr'), 'utf8')
+    exit: fs.readFileSync(exit, 'utf8').trim(),
+    stdout: fs.readFileSync(out, 'utf8'),
+    stderr: fs.readFileSync(err, 'utf8')
   };
 }
 
@@ -135,7 +142,7 @@ test('v43.1: Android execution runs OpenCode with the selected workspace as its 
   try {
     const cmd = buildAndroidCommand({ workDir: e.ws, configPath: e.cfg, binaryPath: e.bin, prompt: 'list files' });
     assert.ok(!cmd.includes('--dir'), 'the built command must not contain --dir');
-    const res = runInTermux(cmd, { base: e.base, env: { OC_TEST_OUT: e.outFile } });
+    const res = runInTermux(cmd, { base: e.base, workDir: e.ws, env: { OC_TEST_OUT: e.outFile } });
     assert.equal(res.exit, '0', 'the Termux command must succeed');
     const seen = parseFake(fs.readFileSync(e.outFile, 'utf8'));
     assert.equal(seen.cwd, e.ws, 'OpenCode must start in the selected workspace');
@@ -158,7 +165,7 @@ test('v43.1: model, session and prompt arguments are preserved for Android execu
   const e = fakeOpencodeEnv();
   try {
     const cmd = buildAndroidCommand({ workDir: e.ws, configPath: e.cfg, binaryPath: e.bin, model: 'anthropic/claude#high', sessionId: 'ses_abc123', auto: true, prompt: 'fix the bug' });
-    const res = runInTermux(cmd, { base: e.base, env: { OC_TEST_OUT: e.outFile } });
+    const res = runInTermux(cmd, { base: e.base, workDir: e.ws, env: { OC_TEST_OUT: e.outFile } });
     assert.equal(res.exit, '0');
     const { argv } = parseFake(fs.readFileSync(e.outFile, 'utf8'));
     assert.deepEqual(argv, ['run', '--format', 'json', '--model', 'anthropic/claude#high', '--session', 'ses_abc123', '--auto', '--', 'fix the bug']);
@@ -169,7 +176,7 @@ test('v43.1: empty model, session and auto flags are omitted', () => {
   const e = fakeOpencodeEnv();
   try {
     const cmd = buildAndroidCommand({ workDir: e.ws, configPath: e.cfg, binaryPath: e.bin, prompt: 'hi' });
-    runInTermux(cmd, { base: e.base, env: { OC_TEST_OUT: e.outFile } });
+    runInTermux(cmd, { base: e.base, workDir: e.ws, env: { OC_TEST_OUT: e.outFile } });
     const { argv } = parseFake(fs.readFileSync(e.outFile, 'utf8'));
     assert.deepEqual(argv, ['run', '--format', 'json', '--', 'hi']);
   } finally { e.cleanup(); }
@@ -182,7 +189,7 @@ test('v43.1: workspace paths containing spaces and quotes are used correctly', (
     assert.match(e.ws, / /, 'the fixture path must contain a space');
     assert.match(e.ws, /'/, 'the fixture path must contain a single quote');
     const cmd = buildAndroidCommand({ workDir: e.ws, configPath: e.cfg, binaryPath: e.bin, prompt: 'p' });
-    const res = runInTermux(cmd, { base: e.base, env: { OC_TEST_OUT: e.outFile } });
+    const res = runInTermux(cmd, { base: e.base, workDir: e.ws, env: { OC_TEST_OUT: e.outFile } });
     assert.equal(res.exit, '0', 'a quoted path with spaces/quotes must still run');
     const seen = parseFake(fs.readFileSync(e.outFile, 'utf8'));
     assert.equal(seen.cwd, e.ws);
@@ -198,7 +205,7 @@ test('v43.1: prompts and model values cannot inject shell commands', () => {
   try {
     const prompt = 'run $(touch ' + pwned + ') `touch ' + pwned2 + '` ; touch ' + pwned3 + ' && echo done';
     const cmd = buildAndroidCommand({ workDir: e.ws, configPath: e.cfg, binaryPath: e.bin, model: "mo'del", prompt });
-    runInTermux(cmd, { base: e.base, env: { OC_TEST_OUT: e.outFile } });
+    runInTermux(cmd, { base: e.base, workDir: e.ws, env: { OC_TEST_OUT: e.outFile } });
     const { argv } = parseFake(fs.readFileSync(e.outFile, 'utf8'));
     assert.equal(argv[argv.length - 1], prompt, 'the prompt must arrive verbatim as one argument');
     assert.ok(!fs.existsSync(pwned) && !fs.existsSync(pwned2) && !fs.existsSync(pwned3), 'no injected command may execute');

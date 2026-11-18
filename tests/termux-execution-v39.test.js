@@ -71,7 +71,14 @@ check('config + mirror live in Termux-readable shared staging dir', () => {
   const cmdLine = (MA.match(/val command = "[^"]*"/) || [''])[0];
   assert.ok(cmdLine, 'openCodeRun must build the Termux command');
   assert.doesNotMatch(cmdLine, /--dir/);
-  assert.match(cmdLine, /cd \$\{shQuote\(workDir\)\} && OPENCODE_CONFIG=/);
+  assert.match(cmdLine, /OPENCODE_CONFIG=\$\{shQuote\(cfgFile\.absolutePath\)\}/);
+  // v44: the command no longer embeds the `cd`. The runtime launches the shell in Termux home
+  // (a directory Termux always validates) and enters the workspace with an explicit `cd`, whose
+  // failure produces a distinct exit code instead of leaving the task stuck at STARTING.
+  assert.doesNotMatch(cmdLine, /cd \$\{shQuote\(workDir\)\}/);
+  assert.match(RT, /val processDir = TERMUX_HOME/);
+  assert.match(RT, /append\("\( cd "\)\.append\(shQuote\(workDir\)\)/);
+  assert.match(RT, /CODESPACE_WORKSPACE_UNREACHABLE/);
 });
 
 /* ---------- Issue B: chat CLI selection ---------- */

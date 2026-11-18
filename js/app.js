@@ -7517,10 +7517,36 @@ function ocLocalCall(pathname, body) {
   return bcall(pathname, body);
 }
 
+/* v44 execution-lifecycle diagnostics. Prefix `[OPENCODE_EXEC_V44]`, mirrored to the native
+   /diag/log endpoint so a physical-device capture of /sdcard/Download/codespace-diagnostics.txt
+   shows the REAL lifecycle (request id, route, workspace, state, exit code). Never logs prompts,
+   API keys or authorization headers. */
+function ocExecLog(event, data) {
+  let line;
+  try { line = '[OPENCODE_EXEC_V44] ' + event + (data === undefined ? '' : ' ' + JSON.stringify(data)); }
+  catch (e) { line = '[OPENCODE_EXEC_V44] ' + event; }
+  // Defense in depth: never persist a credential, even if a CLI error message echoes one back.
+  line = line.replace(/oc_sk_[A-Za-z0-9_]+/g, 'oc_sk_***')
+             .replace(/ghp_[A-Za-z0-9]+/g, 'ghp_***')
+             .replace(/github_pat_[A-Za-z0-9_]+/g, 'github_pat_***')
+             .replace(/sk-[A-Za-z0-9_-]{12,}/g, 'sk-***')
+             .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+/gi, 'Bearer ***')
+             .replace(/x-access-token:[^\s@]+/gi, 'x-access-token:***');
+  try { console.log(line); } catch (e) {}
+  try {
+    if (typeof csNativeCall === 'function' && window.CodeSpaceNative &&
+        typeof window.CodeSpaceNative.localApiCall === 'function') {
+      csNativeCall('/diag/log', { msg: line }).catch(() => {});
+    }
+  } catch (e) {}
+  return line;
+}
+
 /* Genuine Android-local OpenCode CLI execution: poll NDJSON output from the native bridge and
    turn it into the same progress/live/done events the remote SSE path produces. Never falls back
    to an AI API — the real CLI binary output drives the result. */
 async function runOpenCodeAndroidLocalOnce(text, sess) {
+  const reqId = 'req_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const started = await ocLocalCall('/opencode/run', {
     prompt: text, sessionId: sess.openCodeSessionId || '', autoApprove: !!S.openCodeAutoApprove, title: sess.title,
     model: currentOpenCodeModel(),
@@ -7528,6 +7554,7 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
   });
   if (!started || started.ok === false) {
     const err = (started && started.error) || 'Could not start OpenCode CLI on this device.';
+    ocExecLog('launch-failed', { reqId, error: err, needsInstall: !!(started && started.needsInstall) });
     if (started && started.needsInstall) {
       addErr(err + ' Open Settings → OpenCode CLI to install/set up the CLI (Termux or a bundled Android-compatible binary). OpenCode CLI will NOT be silently switched to OpenCode Zen.');
     } else addErr('OpenCode CLI failed: ' + err);
@@ -7559,12 +7586,29 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
       if (tool) feedPush('OpenCode is using ' + tool + '…');
     }
   };
-  let since = 0; let carried = ''; const deadline = Date.now() + 60 * 60 * 1000;
+  const timeoutMs = (Number(started.timeoutMs) > 0 ? Number(started.timeoutMs) : 30 * 60 * 1000);
+  let state = String(started.state || 'STARTING');
+  let sawRunning = false;
+  ocExecLog('launch', { reqId, session, state, runtime: started.runtime, route: 'android-local:/opencode/run', workspace: started.posixPath, workspaceId: started.workspaceId, mirrored: !!started.mirrored, model: started.model, timeoutMs });
+  let since = 0; let carried = ''; const deadline = Date.now() + timeoutMs + 90 * 1000;
   while (Date.now() < deadline) {
-    if (ctrl && ctrl.signal.aborted) { try { await ocLocalCall('/opencode/run/cancel', { sessionId: session }); } catch {} throw new DOMException('Aborted', 'AbortError'); }
-    let snap; try { snap = await ocLocalCall('/opencode/run/read', { sessionId: session, since }); } catch (e) { throw e; }
+    if (ctrl && ctrl.signal.aborted) { try { await ocLocalCall('/opencode/run/cancel', { sessionId: session }); } catch {} ocExecLog('cancelled', { reqId, session }); throw new DOMException('Aborted', 'AbortError'); }
+    let snap; try { snap = await ocLocalCall('/opencode/run/read', { sessionId: session, since }); } catch (e) { ocExecLog('read-error', { reqId, session, error: String(e && e.message || e) }); throw e; }
+    if (snap && snap.error) {
+      // Lost session (e.g. the app process was restarted, or the run was cancelled elsewhere):
+      // fail fast with a clear message, never poll forever.
+      if (ctrl && ctrl.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      ocExecLog('session-lost', { reqId, session, error: snap.error });
+      throw new Error('OpenCode CLI session was lost (' + snap.error + '). The task was not left running — press Send to retry.');
+    }
+    if (snap && snap.state) state = String(snap.state);
+    if (snap && snap.started && !sawRunning) {
+      sawRunning = true; setBusy(true, 'OpenCode CLI is running…'); updateTurnActivity('assistant', 'working', 'OpenCode CLI is running…');
+      ocExecLog('running', { reqId, session, pid: snap.pid });
+    }
     if (snap && snap.data) {
       carried += snap.data;
+      ocExecLog('stdout-chunk', { reqId, session, bytes: snap.data.length });
       let at; while ((at = carried.indexOf('\n')) >= 0) { onLine(carried.slice(0, at)); carried = carried.slice(at + 1); }
     }
     if (typeof snap.next === 'number') since = snap.next;
@@ -7574,12 +7618,17 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
       let finalText = lastMid ? [...messageParts.get(lastMid).values()].join('') : '';
       if (!finalText.trim() && plain.trim()) finalText = plain.trim();
       if (started.mirrored) { try { const s = await ocLocalCall('/opencode/workspace/sync-out', {}); if (s.conflicts && s.conflicts.length) addErr('Some OpenCode changes were not synced back (conflicts): ' + s.conflicts.map(c => c.path).join(', ')); else feedPush('Android folder synchronized (' + (s.written || 0) + ' file(s)).'); } catch {} }
-      return { exitCode: snap.code == null ? -1 : snap.code, sessionId: session, text: finalText, stderr: snap.stderr || '', timedOut: false };
+      const code = snap.code == null ? -1 : snap.code;
+      const stderr = String(snap.stderr || '');
+      if (stderr.trim()) ocExecLog('stderr', { reqId, session, bytes: stderr.length, preview: stderr.replace(/\s+/g, ' ').slice(0, 300) });
+      ocExecLog('completed', { reqId, session, code, state: snap.state || state, textLen: finalText.length });
+      return { exitCode: code, sessionId: session, text: finalText, stderr, timedOut: (snap.state === 'TIMED_OUT'), state: snap.state || state };
     }
     await new Promise(r => setTimeout(r, 350));
   }
   try { await ocLocalCall('/opencode/run/cancel', { sessionId: session }); } catch {}
-  return { exitCode: -1, sessionId: session, text: '', stderr: 'Timed out after 60 minutes.', timedOut: true };
+  ocExecLog('client-timeout', { reqId, session, state });
+  return { exitCode: -1, sessionId: session, text: '', stderr: 'Timed out after ' + Math.round(timeoutMs / 60000) + ' minutes.', timedOut: true, state: 'TIMED_OUT' };
 }
 
 /* Detect a quota / rate-limit / exhausted-key failure from OpenCode CLI output so we can fall
@@ -7592,26 +7641,36 @@ function looksLikeQuotaFailure(r) {
 }
 
 /* Run OpenCode CLI, and when a key is rate-limited/exhausted, rotate to the next saved API key
-   and retry with the SAME prompt and model. Bounded by the number of keys to avoid loops. */
+   and retry with the SAME prompt and model. Bounded by the number of keys to avoid loops.
+   v44: single-flight — a second Android-local run is never started while one is live. */
+let ocRunActive = false;
 async function runOpenCodeAndroidLocal(text, sess) {
-  let result = null;
-  const maxAttempts = 8;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    result = await runOpenCodeAndroidLocalOnce(text, sess);
-    if (!result || result.exitCode === 0 || ctrl && ctrl.signal.aborted) return result;
-    if (!looksLikeQuotaFailure(result)) return result;
-    let rotated;
-    try { rotated = await bcall('/opencode/keys/rotate', { reason: 'quota' }); } catch { return result; }
-    if (!rotated || !rotated.rotated) {
-      addErr('OpenCode API key hit its limit and there is no other saved key to fall back to. Add more keys in Settings → OpenCode CLI.');
-      return result;
-    }
-    feedPush && feedPush('OpenCode key hit its limit — switched to ' + (rotated.label || 'next key') + ', retrying with the same model…');
-    // A fresh session per attempt so a failed session does not pollute the retry.
-    sess.openCodeSessionId = '';
-    await new Promise(r => setTimeout(r, 400));
+  if (ocRunActive) {
+    ocExecLog('duplicate-suppressed', {});
+    addErr('An OpenCode CLI task is already running on this device. Stop it before starting another.');
+    return null;
   }
-  return result;
+  ocRunActive = true;
+  try {
+    let result = null;
+    const maxAttempts = 8;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      result = await runOpenCodeAndroidLocalOnce(text, sess);
+      if (!result || result.exitCode === 0 || ctrl && ctrl.signal.aborted) return result;
+      if (!looksLikeQuotaFailure(result)) return result;
+      let rotated;
+      try { rotated = await bcall('/opencode/keys/rotate', { reason: 'quota' }); } catch { return result; }
+      if (!rotated || !rotated.rotated) {
+        addErr('OpenCode API key hit its limit and there is no other saved key to fall back to. Add more keys in Settings → OpenCode CLI.');
+        return result;
+      }
+      feedPush && feedPush('OpenCode key hit its limit — switched to ' + (rotated.label || 'next key') + ', retrying with the same model…');
+      // A fresh session per attempt so a failed session does not pollute the retry.
+      sess.openCodeSessionId = '';
+      await new Promise(r => setTimeout(r, 400));
+    }
+    return result;
+  } finally { ocRunActive = false; }
 }
 
 async function runOpenCodeChat(text, userDisplayText = text, privateContext = '') {
@@ -7663,6 +7722,7 @@ async function runOpenCodeChat(text, userDisplayText = text, privateContext = ''
   ctrl = new AbortController(); setBusy(true, 'OpenCode CLI: starting…');
   startAssistantActivity('OpenCode CLI', 'Starting your task');
   maFeed.liveRowId = 0; maFeed.progId = feedPush('Starting OpenCode CLI');
+  ocExecLog('turn-start', { nativeMode });
   let result = null, readError = '', openCodeSuccess = false;
   try {
     const fullPrompt = text + privatePromptContext + continuationNote;
@@ -7708,7 +7768,15 @@ async function runOpenCodeChat(text, userDisplayText = text, privateContext = ''
     if (!result) throw new Error(readError || 'OpenCode CLI ended without a completion event. Check that OpenCode is installed and its provider is logged in.');
     if (result.sessionId) sess.openCodeSessionId = result.sessionId;
     if (result.exitCode !== 0) {
-      const detail = result.timedOut ? 'Timed out after 60 minutes.' : (result.stderr || ('Process exited with code ' + result.exitCode));
+      const st = String(result.state || '');
+      const raw = String(result.stderr || '').replace(/\s+/g, ' ').trim();
+      let detail;
+      if (result.timedOut || st === 'TIMED_OUT') detail = 'The run exceeded the execution limit and was stopped. ' + raw;
+      else if (result.exitCode === 130) detail = 'Stopped by you. ' + raw;
+      else if (result.exitCode === 70) detail = 'The OpenCode CLI process never started. ' + raw;
+      else if (result.exitCode === 78) detail = 'Termux could not enter the selected workspace folder. ' + raw;
+      else detail = raw || ('Process exited with code ' + result.exitCode);
+      ocExecLog('turn-failed', { code: result.exitCode, state: st, detail: detail.slice(0, 300) });
       addErr('OpenCode CLI failed. ' + detail.slice(0, 1800));
     } else if (String(result.text || '').trim()) {
       let cleanText = stripInternalContextDump(String(result.text).trim(), userDisplayText);
@@ -7726,6 +7794,7 @@ async function runOpenCodeChat(text, userDisplayText = text, privateContext = ''
   } finally {
     if (maFeed.liveRowId) { feedEnd(maFeed.liveRowId, ctrl && ctrl.signal.aborted ? 'skip' : (openCodeSuccess ? 'ok' : 'err')); maFeed.liveRowId = 0; }
     const activityStatus = ctrl && ctrl.signal.aborted ? 'cancelled' : (openCodeSuccess ? 'completed' : 'failed');
+    ocExecLog('turn-end', { status: activityStatus });
     setMultiAgentActivity('assistant', activityStatus, activityStatus === 'completed' ? 'Response complete' : activityStatus === 'cancelled' ? 'Stopped by you' : 'OpenCode run ended');
     sess.lastRunStop = ctrl && ctrl.signal.aborted ? 'cancelled' : (openCodeSuccess ? 'completed' : 'error'); // 3.12.7: feeds buildContinuationNote on the next turn
     ctrl = null; finishChatAutoFollow(); finishTurn(); setBusy(false); sess.updated = Date.now(); persistSession(); renderSessions();

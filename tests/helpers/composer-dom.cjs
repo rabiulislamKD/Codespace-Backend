@@ -209,7 +209,10 @@ function buildComposer(opts = {}) {
         else if (pathname === '/info') data = nativeInfo;
         else if (pathname === '/term/list') data = { terminals: [] };
         else if (pathname === '/opencode/run') data = opts.runReply || { ok: true, sessionId: 'ses_test', exited: true, code: 0 };
-        else if (pathname === '/opencode/run/read') data = opts.runReadReply || { data: '', next: 0, exited: true, code: 0 };
+        else if (pathname === '/opencode/run/read') {
+          if (Array.isArray(opts.runReadQueue) && opts.runReadQueue.length) data = opts.runReadQueue.shift();
+          else data = opts.runReadReply || { data: '', next: 0, exited: true, code: 0 };
+        }
         else if (pathname === '/opencode/run/cancel') data = { ok: true };
         else if (pathname === '/opencode/workspace/sync-out') data = opts.syncOutReply || { ok: true, written: 0, conflicts: [] };
         try { ctx.window.__csNativeCb(id, JSON.stringify({ status: 200, data })); } catch (e) {}
