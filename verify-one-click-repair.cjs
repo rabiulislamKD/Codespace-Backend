@@ -1,0 +1,21 @@
+'use strict';
+const fs = require('fs'), assert = require('assert/strict');
+const menu = fs.readFileSync('src-js/22-menubar.js', 'utf8');
+const bundle = fs.readFileSync('js/app.js', 'utf8');
+const css = fs.readFileSync('css/07-extras.css', 'utf8');
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+const checks = [];
+const t = (name, ok) => checks.push([name, !!ok]);
+t('release version is a valid 3.x release', /^3\.\d+\.\d+$/.test(pkg.version));
+t('Run menu exposes Repair CodeSpace', /\['Run', \[[\s\S]*?\{ l: 'Repair CodeSpace', run: oneClickRepair/.test(menu));
+t('repair action launches the existing agent', /async function oneClickRepair\([\s\S]*?await runAgent\(prompt, \[\]\)/.test(menu));
+t('repair starts with runtime and installation diagnostics', /codespace_runtime_check/.test(menu) && /codespace_locate_installation/.test(menu));
+t('repair inspects project and workflow health', /workflow_diagnostics/.test(menu) && /project_health_check/.test(menu));
+t('repair preserves workspace and approval boundaries', /never bypass approvals/.test(menu) && /workspace boundary/.test(menu));
+t('menu item is text-only with no icon markup', !/icon|svg|img/i.test(menu.slice(menu.indexOf("{ l: 'Repair CodeSpace'"), menu.indexOf("{ l: 'Stop Agent'"))));
+t('menu hover help is a plain tooltip without a question-mark badge', !/mb-help/.test(menu) && /b\.title = it\.tip/.test(menu));
+t('question-mark badge styling is removed', !/\.mb-help\{/.test(css));
+t('bundled app contains the same repair entry', bundle.includes("{ l: 'Repair CodeSpace', run: oneClickRepair"));
+t('splash omits version metadata', !/v3\.15\.1/.test(fs.readFileSync('my-chat-agent-v3.html', 'utf8')));
+let bad = 0; for (const [name, ok] of checks) { console.log((ok ? 'PASS ' : 'FAIL ') + name); if (!ok) bad++; }
+console.log(`\n${checks.length - bad}/${checks.length} one-click repair checks passed.`); process.exit(bad ? 1 : 0);

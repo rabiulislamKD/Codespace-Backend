@@ -1,0 +1,75 @@
+
+/* ===== editable code ===== */
+.edwrap{flex:1;min-height:0;display:flex;font:12.5px/1.55 var(--mono);background:var(--bg)}
+.gutter{flex:none;width:3.8em;padding:8px 10px 8px 0;text-align:right;color:var(--muted);overflow:hidden;white-space:pre;user-select:none;border-right:1px solid var(--line)}
+.edmain{position:relative;flex:1;min-width:0}
+.edhl,.edta{position:absolute;inset:0;margin:0;padding:8px 14px;font:inherit;line-height:inherit;letter-spacing:0;tab-size:2;white-space:pre;border:0;overflow:auto}
+.edhl{overflow:hidden;pointer-events:none;color:var(--ink)}
+.edta{background:transparent;color:transparent;caret-color:var(--ink);resize:none;outline:none;-webkit-text-fill-color:transparent}
+.edta::selection{background:rgba(0,120,212,.32)}
+.edta:disabled{opacity:1}
+.edhl .cerr{color:var(--err);white-space:normal}
+#fState{margin-left:8px}
+#fStale{margin-left:8px;color:var(--warn)}
+#bview:focus{outline:2px solid var(--accent);outline-offset:-2px}
+.fbar{white-space:nowrap;min-height:34px}
+.fbar #filePath{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.fbar .btn{flex:none}
+
+/* ===== folder picker ===== */
+.fplist{height:260px;overflow:auto;border:1px solid var(--line);border-radius:6px;margin-top:8px;background:var(--side)}
+.fpplaces{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.emptytree{padding:16px 14px;color:var(--muted);font-size:12.5px}
+.emptytree .btn{margin-top:10px}
+
+/* ===== integrated Android Local Node debugger ===== */
+.cs-debug-panel{flex:none;min-height:170px;max-height:310px;border-top:1px solid var(--line);background:var(--side);display:flex;flex-direction:column;overflow:hidden}
+.cs-debug-panel[hidden]{display:none}
+.cs-debug-head{min-height:38px;display:flex;align-items:center;gap:5px;padding:4px 7px;border-bottom:1px solid var(--line);white-space:nowrap;overflow-x:auto}
+.cs-debug-head strong{font-size:12px;font-weight:600;margin:0 7px 0 2px}
+#csDebugStatus{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;max-width:180px}
+.cs-debug-body{display:grid;grid-template-columns:minmax(130px,1fr) minmax(130px,1fr) minmax(180px,1.4fr);gap:0;flex:1;min-height:0}
+.cs-debug-col{min-width:0;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--line)}
+.cs-debug-col:last-child{border-right:0}
+.cs-debug-title{font-size:10px;letter-spacing:.08em;color:var(--muted);padding:6px 8px 4px;font-weight:700}
+.cs-debug-list,.cs-debug-output{min-height:0;overflow:auto;flex:1;padding:2px 5px 6px;font:11px/1.45 var(--mono)}
+.cs-debug-item{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:3px;padding:3px 5px;color:var(--ink);font:inherit;overflow-wrap:anywhere}
+.cs-debug-item:hover,.cs-debug-item.selected{background:var(--hover)}
+.cs-debug-item .muted,.cs-debug-empty{color:var(--muted)}
+.cs-debug-empty{padding:7px 5px;font:11px/1.5 var(--sans)}
+.cs-debug-output{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
+.cs-debug-output .err{color:var(--err)}
+.cs-debug-eval{display:flex;gap:5px;padding:5px;border-top:1px solid var(--line)}
+.cs-debug-eval input{flex:1;min-width:0;padding:5px 7px;font:11px var(--mono);background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:4px}
+.cs-line-number{display:block;width:100%;height:1.55em;line-height:1.55em;padding:0 7px 0 0;border:0;background:transparent;color:var(--muted);text-align:right;font:inherit;cursor:pointer}
+.cs-line-number:hover{color:var(--accent);background:var(--hover)}
+.cs-line-number.has-breakpoint{color:#e05b5b;font-weight:700}
+@media(max-width:760px){.cs-debug-panel{max-height:280px}.cs-debug-body{grid-template-columns:minmax(105px,.9fr) minmax(105px,.9fr) minmax(140px,1.2fr)}.cs-debug-head{gap:3px}.cs-debug-head .btn{padding:3px 6px;font-size:10px}}
+
+/* ===== Android Local Node package manager ===== */
+.cs-node-packages{display:flex;flex:1;min-height:0;flex-direction:column;overflow:hidden}
+.cs-node-packages[hidden]{display:none}
+.cs-node-packages-bar{display:flex;align-items:center;gap:6px;padding:7px;border-bottom:1px solid var(--line)}
+.cs-node-packages-bar input{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:4px;background:var(--input);color:var(--ink);font:11px var(--mono)}
+.cs-node-package-list{flex:1;min-height:0;overflow:auto;padding:4px 8px}
+.cs-node-package-row{display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--line);font-size:11px}
+.cs-node-package-row .name{font:11px var(--mono);overflow-wrap:anywhere}
+.cs-node-package-row .version{color:var(--muted);font:10px var(--mono)}
+.cs-node-package-row .description{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cs-node-package-note{padding:5px 8px;border-top:1px solid var(--line);font-size:10px;color:var(--muted)}
+@media(max-width:760px){.cs-node-packages-bar{gap:4px;padding:5px}.cs-node-packages-bar .btn{padding:4px 6px;font-size:10px}.cs-node-package-row .description{display:none}}
+
+.cs-python-package-note{padding:7px 9px;color:var(--muted);font-size:10px;line-height:1.45;border-top:1px solid var(--line)}
+
+
+/* Touch-first editing: allow native selection handles while keeping each pane independently scrollable. */
+#editor,#editorBody,#fileView,.edwrap,.edmain{min-width:0;min-height:0}
+.edwrap,.edmain{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.edta{touch-action:pan-x pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;-webkit-user-select:text;user-select:text;-webkit-touch-callout:default;caret-color:var(--ink)}
+.edhl,.gutter{-webkit-user-select:none;user-select:none;pointer-events:none}
+.cs-touch-context{position:fixed;z-index:100000;display:flex;flex-direction:column;min-width:168px;max-width:min(230px,calc(100vw - 16px));padding:5px;background:var(--side);border:1px solid var(--line);border-radius:9px;box-shadow:0 8px 28px rgba(0,0,0,.28)}
+.cs-touch-context[hidden]{display:none}
+.cs-touch-context button{min-height:42px;padding:8px 12px;text-align:left;border:0;border-radius:5px;background:transparent;color:var(--ink);font:inherit;font-size:13px;font-weight:500;line-height:1.2;touch-action:manipulation}
+.cs-touch-context button:active,.cs-touch-context button:focus-visible{background:var(--hover)}
+.cs-touch-context button:disabled{opacity:.38}
+@media(max-width:760px){.edwrap{font-size:13px}.edhl,.edta{padding:10px 12px;line-height:1.6}.gutter{padding-top:10px}.fbar{overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}.cs-debug-list,.cs-debug-output,.cs-node-package-list{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}}

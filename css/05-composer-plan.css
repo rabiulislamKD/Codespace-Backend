@@ -1,0 +1,87 @@
+
+/* ===== Step 6 usability upgrades ===== */
+#composer{position:relative}
+.attachtray{display:flex;gap:6px;flex-wrap:wrap;padding:6px 8px 0}
+.attachchip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--side);max-width:100%}
+.attachchip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.attachchip button{border:0;background:transparent;color:var(--muted);cursor:pointer}
+/* 3.13.1: message action buttons — quiet text-only pills under user and AI messages (no icons in chat) */
+.umsg .uactions{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap}
+.aactions{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap}
+.uact{display:inline-flex;align-items:center;gap:5px;border:1px solid transparent;background:transparent;color:var(--muted);border-radius:7px;padding:2px 9px;font-size:11.5px;font-weight:550;line-height:1.5;cursor:pointer;transition:background .14s ease,color .14s ease,border-color .14s ease;user-select:none}
+.uact:hover{background:var(--hover);color:var(--ink);border-color:var(--line)}
+.uact:active{transform:translateY(.5px)}
+.uact:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.uact.is-copied{color:var(--ok)}
+.user-image{max-width:min(360px,80%);max-height:240px;object-fit:contain;border:1px solid var(--line);border-radius:6px;margin:6px 6px 0 0}
+/* Phase 3X: compact task-plan bar attached to the latest chat turn */
+#planPanel{display:flex;flex-direction:column;flex:none;width:100%;min-width:0;max-width:100%;margin:0;padding:0;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:9px;background:color-mix(in srgb,var(--side) 94%,var(--accent) 6%);color:var(--ink);overflow:hidden;box-shadow:0 2px 8px color-mix(in srgb,var(--ink) 7%,transparent);max-height:min(58vh,420px)}
+/* 3.10: background task bar + agent stage pulse */
+#taskBar{display:flex;flex-direction:column;gap:4px;flex:none;width:100%;margin:0;padding:6px 8px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:9px;background:color-mix(in srgb,var(--side) 94%,var(--accent) 6%);color:var(--ink);max-height:180px;overflow:auto}
+#taskBar[hidden]{display:none!important}
+.taskrow{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 2px;font-size:12px}
+.taskdot{flex:none;width:8px;height:8px;border-radius:99px;background:var(--muted)}
+.taskrow[data-status=running] .taskdot,.taskrow[data-status=pending] .taskdot{background:var(--accent);animation:taskPulse 1.2s ease-in-out infinite}
+.taskrow[data-status=done] .taskdot{background:var(--ok,#3fb27f)}
+.taskrow[data-status=error] .taskdot,.taskrow[data-status=cancelled] .taskdot{background:#e5484d}
+@keyframes taskPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
+.tasklabel{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.taskstatus{flex:1 1 auto;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.taskbtn{flex:none;padding:1px 8px;font-size:11px}
+@media(prefers-reduced-motion:reduce){.taskrow[data-status=running] .taskdot{animation:none}}
+#planPanel[hidden]{display:none!important}
+.plan-summary{display:flex;flex:none;align-items:center;gap:8px;width:100%;min-width:0;min-height:38px;padding:7px 10px;border:0;border-radius:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer;font:inherit;transition:background .15s ease}
+.plan-summary:hover{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.plan-summary:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+.plan-glyph{display:grid;place-items:center;flex:none;width:23px;height:23px;border-radius:6px;background:color-mix(in srgb,var(--accent) 13%,var(--bg))}
+.plan-glyph::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.plan-summary-label{font-size:12px;font-weight:650;white-space:nowrap;flex:none}
+.plan-summary-count{font:11px var(--mono);color:var(--muted);white-space:nowrap;flex:none}
+.plan-mini-track{height:4px;flex:none;width:48px;border-radius:99px;background:var(--line);overflow:hidden}
+.plan-mini-fill{display:block;height:100%;border-radius:inherit;background:var(--ok);transition:width .18s ease}
+.plan-summary-current{flex:1;min-width:0;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan-summary-current strong{font-weight:600;color:var(--ink)}
+.plan-chevron{flex:none;width:7px;height:7px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(45deg) translate(-1px,-1px);opacity:.65;transition:transform .15s ease}
+#planPanel[data-expanded="true"] .plan-chevron{transform:rotate(225deg)}
+.plan-body{flex:1 1 auto;min-height:0;border-top:1px solid var(--line);padding:9px 10px 10px;overflow:auto}
+.plan-body[hidden]{display:none!important}
+.plan-overview{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--muted);font-size:11px}
+.plan-overview strong{color:var(--ink);font-weight:650}
+.plan-overview-track{height:5px;flex:1;min-width:35px;border-radius:99px;background:var(--line);overflow:hidden}
+.plan-overview-fill{display:block;height:100%;border-radius:inherit;background:var(--ok);transition:width .18s ease}
+.plan-list{display:grid;gap:5px}
+.planrow{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 8px;border:1px solid var(--line);border-radius:7px;background:color-mix(in srgb,var(--bg) 68%,transparent);font-size:12px;min-width:0}
+.planrow .pmark{position:relative;width:20px;height:20px;display:grid;place-items:center;border-radius:6px;background:var(--sel)}
+.pmark::before{content:"";width:8px;height:8px;border-radius:50%;border:1.6px solid var(--muted);background:transparent;transition:background .2s ease,border-color .2s ease}
+.planrow[data-status="completed"] .pmark::before{border:0;background:var(--ok);animation:dot-pop .3s cubic-bezier(.2,1.6,.4,1) both}
+.planrow[data-status="in_progress"] .pmark::before{border:0;background:var(--accent);animation:dot-pulse 1.2s ease-in-out infinite}
+.planrow[data-status="blocked"] .pmark::before{border:0;background:var(--err)}
+.planrow .ptitle{min-width:0;overflow-wrap:anywhere;color:var(--ink);line-height:1.4}
+.planrow[data-status="completed"]{border-color:color-mix(in srgb,var(--ok) 25%,var(--line))}
+.planrow[data-status="completed"] .pmark{color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,var(--bg))}
+.planrow[data-status="in_progress"]{border-color:color-mix(in srgb,var(--accent) 48%,var(--line));background:color-mix(in srgb,var(--accent) 5%,var(--bg))}
+.planrow[data-status="in_progress"] .pmark{color:var(--accent);background:color-mix(in srgb,var(--accent) 13%,var(--bg))}
+.planrow[data-status="blocked"]{border-color:color-mix(in srgb,var(--err) 35%,var(--line))}
+.planrow[data-status="blocked"] .pmark{color:var(--err);background:color-mix(in srgb,var(--err) 10%,var(--bg))}
+.plan-status{display:inline-flex;align-items:center;justify-content:center;padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font-size:10px;white-space:nowrap}
+.planrow[data-status="completed"] .plan-status{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 30%,var(--line))}
+.planrow[data-status="in_progress"] .plan-status{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
+.planrow[data-status="blocked"] .plan-status{color:var(--err);border-color:color-mix(in srgb,var(--err) 30%,var(--line))}
+#planBtn[hidden]{display:none!important}
+@media(max-width:620px){#planPanel{max-height:min(62vh,420px)}.plan-summary{gap:6px;padding:7px}.plan-mini-track{width:34px}.plan-summary-current{display:none}.planrow{grid-template-columns:20px minmax(0,1fr) auto;gap:6px;padding:6px}.plan-status{font-size:9px;padding:2px 4px}}
+@media(prefers-reduced-motion:reduce){.plan-summary,.plan-mini-fill,.plan-overview-fill,.plan-chevron{transition:none!important}}
+.quick-dialog{width:min(680px,94vw);max-height:80vh;padding:0;overflow:hidden}
+.quick-head{padding:12px;border-bottom:1px solid var(--line)}
+.quick-head input{width:100%;padding:10px;border-radius:6px;border:1px solid var(--line);background:var(--input);color:var(--ink)}
+.quick-list{overflow:auto;max-height:55vh;padding:5px}
+.quick-row{display:flex;flex-direction:column;text-align:left;width:100%;padding:7px 9px;border:0;border-radius:5px;background:transparent;color:var(--ink);cursor:pointer}
+.quick-row:hover,.quick-row.on{background:var(--hover)}
+.quick-row small{color:var(--muted);overflow-wrap:anywhere}
+#previewDiag{border-top:1px solid var(--line);max-height:230px;overflow:auto;background:var(--side)}
+.diagbar{display:flex;gap:5px;padding:5px 8px;border-bottom:1px solid var(--line)}
+.diagcontent{padding:7px 9px;white-space:pre-wrap;overflow-wrap:anywhere;font:11px var(--mono)}
+#previewDiag[hidden]{display:none}
+#bViewport{max-width:130px}
+#attachDropHint{position:absolute;inset:0;z-index:12;border:2px dashed var(--accent);border-radius:10px;background:color-mix(in srgb,var(--bg) 90%,var(--accent));display:none;align-items:center;justify-content:center;pointer-events:none;font-weight:600}
+#composer.dragging #attachDropHint{display:flex}
+#edTa,#edHl,#edGutter{font-size:var(--editor-font-size,13px)!important}

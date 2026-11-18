@@ -1,0 +1,22 @@
+'use strict';
+const fs = require('fs'), assert = require('assert/strict');
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+const agent = fs.readFileSync('src-js/13-multi-agent-orchestration.js', 'utf8');
+const continuation = fs.readFileSync('src-js/11-compress-context.js', 'utf8');
+const bundle = fs.readFileSync('js/app.js', 'utf8');
+const checks = [];
+const t = (name, ok) => checks.push([name, !!ok]);
+t('release version is a valid 3.x release', /^3\.\d+\.\d+$/.test(pkg.version));
+t('run starts with an interrupted recovery marker', /saveAgentProgress\('agent started', true\)/.test(agent) && /sess\.lastRunStop = 'interrupted'/.test(agent));
+t('final model responses are persisted without partial tool-call transcripts', /if \(!reply\.toolCalls\.length\) saveAgentProgress\('final response saved', true\)/.test(agent));
+t('tool-call cycles are persisted only after every call has a result', /calls\.every\(c => h\.some\(m => m\.role === 'tool' && m\.toolCallId === c\.id\)\)\) saveAgentProgress\('tool request cycle completed', true\)/.test(agent));
+t('progress snapshot records phase, rounds, tools and modified paths', /phase: String\(phase/.test(agent) && /modelRounds: run\.steps/.test(agent) && /toolCalls: run\.toolCalls/.test(agent) && /changedFiles: \[\.\.\.run\.changedFiles\]/.test(agent));
+t('in-progress report cannot claim task completion', /still working \(saved recovery snapshot\)/.test(continuation) && /not a completion report/.test(continuation));
+t('interrupted-run recovery explains reload and connection loss', /interrupted by an app reload, browser restart, or connection loss/.test(continuation));
+t('recovery marker is consumed exactly once', /sess\.lastRunStop = ''/.test(continuation));
+t('final agent state is persisted', /sess\.agentRunState = \{ status: run\.stopReason/.test(agent));
+t('built browser bundle includes recovery persistence', bundle.includes("saveAgentProgress('tool request cycle completed', true)") && bundle.includes('was interrupted by an app reload'));
+let bad = 0;
+for (const [name, ok] of checks) { console.log((ok ? 'PASS ' : 'FAIL ') + name); if (!ok) bad++; }
+console.log(`\n${checks.length - bad}/${checks.length} agent-recovery checks passed.`);
+process.exit(bad ? 1 : 0);

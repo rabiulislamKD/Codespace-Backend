@@ -1,0 +1,53 @@
+
+/* ===== Copilot-style chat ===== */
+#chatPane{background:var(--side)}
+#chatHead{padding:6px 10px;gap:6px}
+.ctag{font-size:11px;letter-spacing:.09em;color:var(--muted)}
+#chatHead .title{font-weight:500;color:var(--ink)}
+.umsg{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 12px;white-space:normal}
+.uhead{font-size:12px;font-weight:600;margin-bottom:2px;color:var(--muted)}
+.ubody{white-space:pre-wrap;overflow-wrap:anywhere}
+.avatar{background:linear-gradient(135deg,#8957e5,#0078d4)}
+/* 3.13.1: steps stay a real card in the Copilot-style chat — indented under the avatar */
+.steps{border:1px solid var(--line);background:color-mix(in srgb,var(--bg) 62%,var(--side));margin:2px 0 8px 32px;overflow:hidden;border-radius:12px}
+.steps>summary{padding:8px 10px;font-size:12px}
+.steps[open]{margin-left:32px}
+.step-head{padding:6px 10px 6px 30px;min-height:32px;font-size:12.5px}
+.step-body{border-top:1px solid color-mix(in srgb,var(--line) 55%,transparent);border-radius:0;margin:0;background:var(--bg);padding-left:30px}
+.nrow{padding:3px 6px 3px 12px;font-size:12.5px;color:var(--muted)}
+.nrow.narr p{margin:0 0 4px}
+.nrow.narr{color:var(--ink);opacity:.85}
+details.nrow>summary{cursor:pointer;list-style:none;padding:2px 0}
+details.nrow>summary::-webkit-details-marker{display:none}
+.shimmer{background:linear-gradient(90deg,var(--muted) 0%,var(--ink) 50%,var(--muted) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shim 1.6s linear infinite}
+@keyframes shim{to{background-position:-200% 0}}
+.amsg.live .abody{opacity:.95}
+.suggs{display:flex;flex-direction:column;gap:6px;margin-top:14px;align-items:stretch}
+.sugg{text-align:left;padding:6px 12px;border-radius:6px;background:var(--bg)}
+#composer{padding:6px 12px 12px}
+.cbox{border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.crow{padding:2px 8px 8px;gap:4px}
+.crow select{width:auto;border:0;background:transparent;color:var(--muted);padding:3px 4px;border-radius:4px;font-size:12px;max-width:190px;cursor:pointer}
+.crow select:hover{background:var(--hover);color:var(--ink)}
+.sbtn{width:28px;height:28px;border-radius:6px;border:0;background:var(--accent);color:var(--accent-ink);font-size:15px;line-height:1;display:grid;place-items:center}
+.sbtn:hover{filter:brightness(1.1)}
+.sbtn.stop{background:var(--err)}
+
+/* ===== context ring ===== */
+#composer{position:relative}
+.ring{background:transparent;border:0;padding:2px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:var(--muted)}
+.ring:hover{background:var(--hover)}
+.ring svg{display:block}
+.ring .rb{fill:none;stroke:var(--line);stroke-width:3}
+.ring .rf{fill:none;stroke:var(--accent);stroke-width:3;stroke-linecap:round;stroke-dasharray:56.55;stroke-dashoffset:56.55;transition:stroke-dashoffset .35s,stroke .2s}
+.ring .rf.warn{stroke:var(--warn)} .ring .rf.hot{stroke:var(--err)}
+.busytxt{font-size:12px;color:var(--muted);margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pop{position:absolute;right:14px;bottom:62px;width:min(260px,calc(100% - 28px));background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;box-shadow:0 6px 24px rgba(0,0,0,.25);z-index:5}
+.pophead{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.popbig{font-size:22px;font-weight:600;margin-top:2px}
+.popsub{color:var(--muted);margin-bottom:6px}
+.popbar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-bottom:8px}
+.popbar i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+.popbar i.warn{background:var(--warn)} .popbar i.hot{background:var(--err)}
+.popline{display:flex;justify-content:space-between;font-size:12px;padding:2px 0}
+.popline span{color:var(--muted)}

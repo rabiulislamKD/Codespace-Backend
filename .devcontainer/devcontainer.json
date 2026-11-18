@@ -1,0 +1,25 @@
+{
+  "name": "CodeSpace Sandbox Host",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": true,
+      "installDockerBuildx": true
+    }
+  },
+  "forwardPorts": [8787],
+  "portsAttributes": {
+    "8787": {
+      "label": "CodeSpace Agent Server",
+      "onAutoForward": "public",
+      "visibility": "public"
+    }
+  },
+  "postCreateCommand": "npm install --omit=dev --no-audit --no-fund || true",
+  "postStartCommand": "bash .devcontainer/start-codespace-backend.sh",
+  "remoteEnv": {
+    "CODESPACE_HOST": "0.0.0.0",
+    "CODESPACE_HOSTED": "1"
+  }
+}

@@ -1,0 +1,66 @@
+# CodeSpace backend on a Linux host with a real Docker daemon.
+#
+# This is the supported way to get actual sandbox containers. The backend
+# container talks to the host Docker socket and creates sibling containers.
+# Do NOT expose this service directly to the internet without TLS and a token.
+#
+# Setup:
+#   1. Copy this folder to the Linux host.
+#   2. Create .env (see .env.sandbox-host.example).
+#   3. Set CODESPACE_DOMAIN to a DNS name pointing at the host.
+#   4. docker compose -f docker-compose.sandbox-host.yml up -d --build
+#
+# The app's Configure Render dialog accepts the HTTPS URL and CODESPACE_API_TOKEN.
+name: codespace
+
+services:
+  codespace:
+    build: .
+    image: codespace-agent:sandbox-host
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      CODESPACE_HOST: 0.0.0.0
+      CODESPACE_API_TOKEN: ${CODESPACE_API_TOKEN:?set CODESPACE_API_TOKEN in .env}
+      CODESPACE_SERVE_WEB: "0"
+      MY_AGENT_DATA_DIR: /data
+      CHROME_PATH: /usr/bin/chromium
+      CODESPACE_CHROME_NO_SANDBOX: "1"
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - codespace-data:/data
+      - codespace-workspace:/workspace
+    # The node user must be in the host's docker group to use the socket.
+    # Find the GID with: stat -c '%g' /var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-999}"
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 8787) + '/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    depends_on:
+      - codespace
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CODESPACE_DOMAIN: ${CODESPACE_DOMAIN:?set CODESPACE_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  codespace-data:
+  codespace-workspace:
+  caddy-data:
+  caddy-config:

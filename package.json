@@ -1,0 +1,94 @@
+{
+  "name": "codespace-portable",
+  "version": "3.18.4",
+  "private": true,
+  "description": "CodeSpace portable Windows desktop app with VS Code-style integrated Chromium browser and local AI coding bridge",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "desktop": "npm run runtime:fetch && electron .",
+    "runtime:fetch": "node scripts/fetch-node-runtime.cjs",
+    "dist:portable": "npm run runtime:fetch && electron-builder --win portable --x64",
+    "dist:dir": "npm run runtime:fetch && electron-builder --win dir --x64",
+    "verify:desktop": "node verify-desktop.cjs",
+    "verify:google-auth": "node verify-google-auth-routing.cjs",
+    "verify:bridge": "node verify-bridge.cjs",
+    "verify:opencode-install": "node verify-opencode-install.cjs",
+    "verify:server": "node verify-server-hardening.cjs",
+    "verify:providers": "node verify-providers.cjs",
+    "verify:310": "node verify-3.10.0.cjs",
+    "verify:311": "node verify-3.11.0.cjs",
+    "verify:sandbox": "node verify-sandbox.cjs",
+    "verify:all": "node verify-server-hardening.cjs && node verify-providers.cjs && node verify.cjs && node verify-3.11.0.cjs && node verify-sandbox.cjs && node verify-3.12.8.cjs && node verify-models-thinking.cjs && node verify-chat-zai.cjs && node verify-bridge.cjs && node verify-desktop.cjs && node verify-google-auth-routing.cjs && node verify-tool-installer.cjs && node verify-tool-manager.cjs && node verify-copilot-fallback.cjs && node verify-menubar.cjs && node verify-install-location.cjs && node verify-self-repair.cjs && node verify-one-click-repair.cjs && node verify-agent-recovery.cjs && node verify-task-center.cjs && node verify-ui-cleanup.cjs && node verify-vscode-marketplace.cjs && node verify-vscode-marketplace-server.cjs && node verify-vscode-node-host.cjs",
+    "verify:3128": "node verify-3.12.8.cjs",
+    "verify:models": "node verify-models-thinking.cjs",
+    "verify:chat-zai": "node verify-chat-zai.cjs",
+    "verify:3129": "node verify-models-thinking.cjs",
+    "test": "node --test tests/*.test.js",
+    "verify:tool-installer": "node verify-tool-installer.cjs",
+    "verify:tool-manager": "node verify-tool-manager.cjs",
+    "verify:copilot": "node verify-copilot-fallback.cjs",
+    "verify:menubar": "node verify-menubar.cjs",
+    "verify:self-repair": "node verify-self-repair.cjs",
+    "verify:install-location": "node verify-install-location.cjs",
+    "verify:one-click-repair": "node verify-one-click-repair.cjs",
+    "verify:agent-recovery": "node verify-agent-recovery.cjs",
+    "verify:tasks": "node verify-task-center.cjs",
+    "verify:ui": "node verify-ui-cleanup.cjs",
+    "verify:marketplace": "node verify-vscode-marketplace.cjs && node verify-vscode-marketplace-server.cjs && node verify-vscode-node-host.cjs",
+    "verify:nodehost": "node verify-vscode-node-host.cjs"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "mysql2": "^3.15.3",
+    "puppeteer-core": "^24.38.0"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "electron-builder": "26.18.1"
+  },
+  "build": {
+    "appId": "com.codespace.desktop",
+    "productName": "CodeSpace",
+    "asar": false,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "**/*",
+      "!release/**/*",
+      "!runtime/**/*",
+      "!scripts/**/*",
+      "!verify*.cjs",
+      "!tests/**/*",
+      "!README*.md",
+      "!CHANGELOG*.md",
+      "!BUILD-PORTABLE-EXE.bat",
+      "!*.zip",
+      "!*.log"
+    ],
+    "extraResources": [
+      {
+        "from": "runtime/node.exe",
+        "to": "runtime/node.exe"
+      }
+    ],
+    "win": {
+      "icon": "assets/codespace.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "CodeSpace-Portable-${version}.${ext}"
+    },
+    "executableName": "CodeSpace"
+  },
+  "author": "Rabiul Islam"
+}

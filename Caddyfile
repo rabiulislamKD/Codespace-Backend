@@ -1,0 +1,4 @@
+{$CODESPACE_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy codespace:8787
+}
