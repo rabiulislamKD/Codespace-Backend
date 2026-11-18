@@ -1513,7 +1513,15 @@ function syncModelBtn() {
   ensureModelMenu();
   const q = $('provQuick'), act = S.providers.find(p => p.id === S.activeId) || S.providers[0];
   let text, tier = '', title;
-  if (S.copilotAuto && q.querySelector('option[value="copilot::auto"]')) { text = COPILOT_LABEL; tier = 'auto'; title = 'CodeSpace Copilot switches to the next free model automatically when the current one hits a limit or fails.'; }
+  // OpenCode CLI mode: the selector holds `opencode::<model>` and the chatbox must show THAT
+  // model — not the CodeSpace provider that merely remains active underneath. Otherwise the
+  // chosen OpenCode model never appears as the selected model in the composer.
+  const ocModel = S.openCodeCLI && typeof currentOpenCodeModel === 'function' ? currentOpenCodeModel() : '';
+  if (S.openCodeCLI) {
+    text = ocModel || 'Select OpenCode model';
+    tier = ocModel ? 'paid' : '';
+    title = 'OpenCode CLI model · ' + (ocModel || '(none selected)') + ' — passed to opencode run --model';
+  } else if (S.copilotAuto && q.querySelector('option[value="copilot::auto"]')) { text = COPILOT_LABEL; tier = 'auto'; title = 'CodeSpace Copilot switches to the next free model automatically when the current one hits a limit or fails.'; }
   else if (act) { text = act.model || act.name || 'Select model'; tier = modelTier(act, act.model); title = act.name + ' · ' + (act.model || '(no model set)') + (tier === 'free' ? ' — free' : ' — paid / other'); }
   else { text = 'Select model'; title = 'No provider configured'; }
   modelBtn.querySelector('.mb-txt').textContent = text;

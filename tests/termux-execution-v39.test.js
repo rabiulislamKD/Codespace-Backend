@@ -67,6 +67,11 @@ check('config + mirror live in Termux-readable shared staging dir', () => {
   assert.match(MA, /File\(AndroidOpenCodeRuntime\.stagingDir\(this\), "opencode-config\.json"\)/);
   assert.match(WS, /File\(AndroidOpenCodeRuntime\.stagingDir\(context\), "workspace"\)/);
   assert.match(MA, /TERMUX_OPCODE_PATH\}' run --format json/);
+  // v43.1: the installed OpenCode v2 CLI has no directory flag; the workspace is the cwd.
+  const cmdLine = (MA.match(/val command = "[^"]*"/) || [''])[0];
+  assert.ok(cmdLine, 'openCodeRun must build the Termux command');
+  assert.doesNotMatch(cmdLine, /--dir/);
+  assert.match(cmdLine, /cd \$\{shQuote\(workDir\)\} && OPENCODE_CONFIG=/);
 });
 
 /* ---------- Issue B: chat CLI selection ---------- */

@@ -791,7 +791,11 @@ function openCodeRun(req, res, b) {
   }
 
   const runCfg = ocRunEnv();
-  const args = [...binary.prefix, 'run', '--format', 'json', '--dir', ROOT];
+  // The installed OpenCode v2 CLI has no `--dir` flag (verified with `opencode run --help`:
+  // supported run flags are --session/-s, --model/-m, --format, --auto, --thinking, --agent,
+  // --continue, --file, --fork, --standalone, --server). The workspace is supplied as the
+  // process working directory via `cwd: ROOT` in the spawn call below, never as a CLI argument.
+  const args = [...binary.prefix, 'run', '--format', 'json'];
   if (runCfg.model) args.push('--model', runCfg.model);
   if (sessionId) args.push('--session', sessionId);
   if (b.autoApprove === true) args.push('--auto');

@@ -52,7 +52,7 @@ const checks = [
  ['OpenCode auto-approval is disabled by default', /openCodeAutoApprove: false/.test(html) && /openCodeAutoApprove: \$\('openCodeAutoApprove'\)\.checked/.test(html)],
  ['OpenCode status endpoint exists', /case '\/opencode\/status': return send\(res, 200, openCodeStatus\(\)\)/.test(server)],
  ['OpenCode run endpoint exists', /case '\/opencode\/run': \{ const g = permGuard\('terminal', 'Run the OpenCode agent/.test(server)],
- ['OpenCode invokes official non-interactive CLI JSON mode', /'run', '--format', 'json', '--dir', ROOT/.test(server)],
+ ['OpenCode invokes official non-interactive CLI JSON mode', /'run', '--format', 'json'\]/.test(server) && !/'--dir'/.test(server)],
  ['OpenCode invocation does not use a shell', /spawn\(binary\.command, args, \{ cwd: ROOT, detached: !WIN, windowsHide: true, env: runCfg\.env, stdio: \['ignore', 'pipe', 'pipe'\] \}\)/.test(server)],
  ['OpenCode sessions continue per My Chat Agent conversation', /sessionId: sess\.openCodeSessionId \|\| ''/.test(html) && /sess\.openCodeSessionId = result\.sessionId/.test(html)],
  ['OpenCode progress streams back to the chat', /Content-Type': 'text\/event-stream/.test(server) && /type: 'progress'/.test(server) && /OpenCode CLI: starting/.test(html)],
@@ -73,7 +73,7 @@ const checks = [
  ['Animated multi-agent activity survives history redraw during an active turn', /keepActivityVisible = !!\(activityPanel && maActivityState\.visible && !maActivityState\.dismissed && ctrl && !ctrl\.signal\.aborted\)/.test(html) && /if \(keepActivityVisible && activityPanel\)/.test(html)],
  ['Smart retrieval and memory are no longer appended to visible chat text', /const privateContext = contextParts\.join\('\\n\\n'\);[\s\S]*?runAgent\(userDisplayText, imgs, privateContext\)/.test(html) && /runOpenCodeChat\(userDisplayText, userDisplayText, privateContext\)/.test(html)],
  ['Private workspace context is added only as protected model context', /buildSystem\(\) \+ privateWorkspaceContextNote \+ multiAgentContextNote/.test(html) && /PRIVATE WORKSPACE REFERENCE \(not the user message\)/.test(html) && /Never quote it verbatim; answer the user directly/.test(html) && /Never output retrieval labels, context headers, excerpt markers, file lists, or source snippets/.test(html)],
- ['OpenCode receives only manually attached context, not automatic retrieval dumps', /body: JSON\.stringify\(\{ prompt: text \+ privatePromptContext/.test(html) && /INTERNAL ATTACHMENT REFERENCE/.test(html) && /if \(!S\.openCodeCLI\) \{[\s\S]*?wfMemoryContext\(v\)[\s\S]*?wfSmartContext\(v\)/.test(html) && /h\.push\(\{ role: 'user', content: userDisplayText, images: \[\] \}\)/.test(html)],
+ ['OpenCode receives only manually attached context, not automatic retrieval dumps', /body: JSON\.stringify\(\{ prompt: fullPrompt,/.test(html) && /INTERNAL ATTACHMENT REFERENCE/.test(html) && /if \(!S\.openCodeCLI\) \{[\s\S]*?wfMemoryContext\(v\)[\s\S]*?wfSmartContext\(v\)/.test(html) && /h\.push\(\{ role: 'user', content: userDisplayText, images: \[\] \}\)/.test(html)],
  ['Legacy context dumps are trimmed from saved user messages', /function stripLegacyInjectedUserContext\(content\)/.test(html) && /cleanLegacyInjectedUserContext\(sessions\)/.test(html) && /cleanLegacyInjectedUserContext\(list\)/.test(html)],
  ['Verbose smart-retrieval banner removed', !/Smart code retrieval: request-focused excerpts/.test(html) && !/Relevant workspace project memory — supporting context only/.test(html)],
  ['PWA cache stays versioned (duplicate guard for retrieval-dump fix)', /codespace-pwa-\d+-/.test(fs.readFileSync(__dirname + '/pwa/sw.js', 'utf8'))],
@@ -222,7 +222,7 @@ async function verifyQaReviewSoftFailure() {
     checks.push(['A stopped turn records its stop reason for the next turn', /sess\.lastRunReport = reportText;\s*\n\s*sess\.lastRunStop = run\.stopReason;/.test(html)]);
     checks.push(['Next turn after a stopped turn builds a private continuation note', /function buildContinuationNote\(sess, h\)/.test(html) && /CONTINUATION CONTEXT \(internal system note/.test(html) && /do NOT restart the task from scratch/.test(html)]);
     checks.push(['Continuation note reaches the model system context for every built-in engine', /buildSystem\(\) \+ privateWorkspaceContextNote \+ multiAgentContextNote \+ continuationNote/.test(html)]);
-    checks.push(['OpenCode continue prompts carry the same continuation context', /prompt: text \+ privatePromptContext \+ continuationNote/.test(html)]);
+    checks.push(['OpenCode continue prompts carry the same continuation context', /const fullPrompt = text \+ privatePromptContext \+ continuationNote;/.test(html) && /runOpenCodeAndroidLocal\(fullPrompt, sess\)/.test(html) && /prompt: fullPrompt/.test(html)]);
     checks.push(['OpenCode turn end also records the stop reason', /sess\.lastRunStop = ctrl && ctrl\.signal\.aborted \? 'cancelled' : \(openCodeSuccess \? 'completed' : 'error'\);/.test(html)]);
     checks.push(['Continuation note is computed before the new user message is pushed', html.indexOf('buildContinuationNote(sess, h)') < html.indexOf("h.push({ role: 'user', content: text, images: (images || []).slice(0, 4) })")]);
     // Runtime: exercise the helper exactly as the page would call it.
@@ -265,7 +265,7 @@ async function verifyQaReviewSoftFailure() {
     const openPass = /readSSE\(res,[\s\S]*?\}, signal\);/.test(openSrc);
     const anthPass = /readSSE\(res,[\s\S]*?\}, signal\);/.test(anthSrc);
     checks.push(['Both model engines pass the signal to readSSE', openPass && anthPass]);
-    checks.push(['OpenCode stream end also re-checks the abort signal', /if \(buf\.trim\(\)\) eventPacket\(buf\);\s*\n[^\n]*3\.12\.7[^\n]*\n[^\n]*\n[^\n]*\n\s*if \(ctrl\.signal\.aborted\) throw new DOMException\('Aborted', 'AbortError'\);/.test(html)]);
+    checks.push(['OpenCode stream end also re-checks the abort signal', /if \(buf\.trim\(\)\) eventPacket\(buf\);[\s\S]{0,400}?3\.12\.7[\s\S]{0,400}?if \(ctrl\.signal\.aborted\) throw new DOMException\('Aborted', 'AbortError'\);/.test(html)]);
     // Runtime: a clean stream end while the signal is aborted must throw AbortError.
     const vm2 = require('vm');
     const rctx = { TextDecoder, DOMException };

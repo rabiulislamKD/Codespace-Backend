@@ -159,7 +159,7 @@ function buildComposer(opts = {}) {
   routeWrap.appendChild(routeMenu);
 
   /* configurable native status */
-  const harness = { statusMode: opts.statusMode || 'OK', statusCalls: 0, nativeCalls: [], remoteCalls: [], statusQueue: Array.isArray(opts.statusQueue) ? opts.statusQueue.slice() : null };
+  const harness = { statusMode: opts.statusMode || 'OK', statusCalls: 0, nativeCalls: [], nativePayloads: [], remoteCalls: [], statusQueue: Array.isArray(opts.statusQueue) ? opts.statusQueue.slice() : null };
   function nativeStatus() {
     harness.statusCalls++;
     if (harness.statusQueue && harness.statusQueue.length) return harness.statusQueue.shift();
@@ -200,6 +200,7 @@ function buildComposer(opts = {}) {
     localApiCall: () => JSON.stringify({ status: 200, data: {} }),
     localApiCallAsync: (pathname, payload, id) => {
       harness.nativeCalls.push(pathname);
+      harness.nativePayloads.push({ pathname, payload: (() => { try { return JSON.parse(payload); } catch { return payload; } })() });
       setTimeout(() => {
         let data = {};
         if (pathname === '/opencode/status') data = nativeStatus();
@@ -223,7 +224,7 @@ function buildComposer(opts = {}) {
 
   const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'src-js', 'manifest.json'), 'utf8'));
   const core = man.core.map(f => fs.readFileSync(path.join(ROOT, 'src-js', f), 'utf8')).join('\n;\n');
-  const tail = '\n;return { S, B, L, setRoute, toggleOpenCode, selectOpenCodeLocal, currentRoute, syncOpenCodeUI, refreshOpenCodeStatus, opencodeRuntimeAvailable, runOpenCodeChat, runOpenCodeAndroidLocal, runOpenCodeAndroidLocalOnce, bcall, refreshWorkspaceInfo, isAndroidFolderWorkspace, ocLocalCall, activeWorkspaceStateRef: () => activeWorkspaceState, addNote, addErr, lastOpenCodeStatusRef: () => lastOpenCodeStatus, setStatus: (s) => { lastOpenCodeStatus = s; } };';
+  const tail = '\n;return { S, B, L, setRoute, toggleOpenCode, selectOpenCodeLocal, currentRoute, syncOpenCodeUI, refreshOpenCodeStatus, opencodeRuntimeAvailable, runOpenCodeChat, runOpenCodeAndroidLocal, runOpenCodeAndroidLocalOnce, bcall, refreshWorkspaceInfo, isAndroidFolderWorkspace, ocLocalCall, activeOpenCodeModel: () => (typeof currentOpenCodeModel === "function" ? currentOpenCodeModel() : null), syncModelBtn, activeWorkspaceStateRef: () => activeWorkspaceState, addNote, addErr, lastOpenCodeStatusRef: () => lastOpenCodeStatus, setStatus: (s) => { lastOpenCodeStatus = s; } };';
   const sandbox = vm.createContext(ctx);
   const api = new vm.Script('(function(){' + core + tail + '\n})()', { filename: 'composer-dom' }).runInContext(sandbox);
 
@@ -231,6 +232,9 @@ function buildComposer(opts = {}) {
     api, ctx, els: { routeWrap, routeBtn, rtTxt, routeMenu, items }, document, localStorage: ls,
     harness,
     dispatch,
+    // The composer's model button renders into a <span class="mb-txt">; the stub DOM records that
+    // write on a sink element, so read it back here (module scope has getEl; the VM does not).
+    modelLabel() { return getEl('__sink_' + '.mb-txt'.replace(/[^a-z0-9_.-]/gi, '')).textContent; },
     openMenu() { dispatch(routeBtn, 'pointerdown', { bubbles: true }); dispatch(routeBtn, 'click', { bubbles: true }); },
     tap(route) { const el = items[route]; dispatch(el, 'pointerdown', { bubbles: true }); dispatch(el, 'click', { bubbles: true }); },
     tapOpenCode() { this.tap('opencode'); },
