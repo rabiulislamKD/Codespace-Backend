@@ -204,7 +204,7 @@ function buildComposer(opts = {}) {
       setTimeout(() => {
         let data = {};
         if (pathname === '/opencode/status') data = nativeStatus();
-        else if (pathname === '/opencode/models') data = { models: ['opencode/big-pickle'], configured: 'opencode/big-pickle', default: 'opencode/big-pickle' };
+        else if (pathname === '/opencode/models') data = opts.modelsReply || { models: ['opencode/big-pickle'], configured: 'opencode/big-pickle', default: 'opencode/big-pickle' };
         else if (pathname === '/workspace/state') data = nativeWorkspaceState;
         else if (pathname === '/info') data = nativeInfo;
         else if (pathname === '/term/list') data = { terminals: [] };
@@ -214,6 +214,7 @@ function buildComposer(opts = {}) {
           else data = opts.runReadReply || { data: '', next: 0, exited: true, code: 0 };
         }
         else if (pathname === '/opencode/run/cancel') data = { ok: true };
+        else if (pathname === '/opencode/run/probe') data = opts.probeReply || { ok: true, alive: true, procState: 'S', wchan: 'do_wait', children: '', outSize: 0, errSize: 0, sinceOutputMs: 25000, elapsedMs: 26000 };
         else if (pathname === '/opencode/workspace/sync-out') data = opts.syncOutReply || { ok: true, written: 0, conflicts: [] };
         try { ctx.window.__csNativeCb(id, JSON.stringify({ status: 200, data })); } catch (e) {}
       }, 3);
@@ -227,7 +228,7 @@ function buildComposer(opts = {}) {
 
   const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'src-js', 'manifest.json'), 'utf8'));
   const core = man.core.map(f => fs.readFileSync(path.join(ROOT, 'src-js', f), 'utf8')).join('\n;\n');
-  const tail = '\n;return { S, B, L, setRoute, toggleOpenCode, selectOpenCodeLocal, currentRoute, syncOpenCodeUI, refreshOpenCodeStatus, opencodeRuntimeAvailable, runOpenCodeChat, runOpenCodeAndroidLocal, runOpenCodeAndroidLocalOnce, bcall, refreshWorkspaceInfo, isAndroidFolderWorkspace, ocLocalCall, activeOpenCodeModel: () => (typeof currentOpenCodeModel === "function" ? currentOpenCodeModel() : null), syncModelBtn, activeWorkspaceStateRef: () => activeWorkspaceState, addNote, addErr, lastOpenCodeStatusRef: () => lastOpenCodeStatus, setStatus: (s) => { lastOpenCodeStatus = s; } };';
+  const tail = '\n;return { S, B, L, setRoute, toggleOpenCode, selectOpenCodeLocal, currentRoute, syncOpenCodeUI, refreshOpenCodeStatus, opencodeRuntimeAvailable, runOpenCodeChat, runOpenCodeAndroidLocal, runOpenCodeAndroidLocalOnce, bcall, refreshWorkspaceInfo, isAndroidFolderWorkspace, ocLocalCall, activeOpenCodeModel: () => (typeof currentOpenCodeModel === "function" ? currentOpenCodeModel() : null), syncModelBtn, activeWorkspaceStateRef: () => activeWorkspaceState, addNote, addErr, lastOpenCodeStatusRef: () => lastOpenCodeStatus, setStatus: (s) => { lastOpenCodeStatus = s; }, fillOpenCodeQuick, looksLikeQuotaFailure, isAccountWideQuotaFailure, formatProviderError, normalizeProviderError, isFreeOpenCodeModel, humanDuration, modelPickerItems, setCtrl: (c) => { ctrl = c; }, ctrlRef: () => ctrl };';
   const sandbox = vm.createContext(ctx);
   const api = new vm.Script('(function(){' + core + tail + '\n})()', { filename: 'composer-dom' }).runInContext(sandbox);
 

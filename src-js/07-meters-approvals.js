@@ -67,7 +67,8 @@ function modelPickerItems() {
   if (Array.isArray(ocIds) && ocIds.length) {
     const items = { free: [], paid: [] };
     const pseudo = { id: 'opencode', name: 'OpenCode', model: '', models: ocIds, providerKey: 'opencode' };
-    ocIds.forEach(id => items.paid.push({ p: pseudo, id }));
+    // v46: group by the model ID itself — Free when the id ends with "-free" (case-insensitive).
+    ocIds.forEach(id => items[(typeof isFreeOpenCodeModel === 'function' ? isFreeOpenCodeModel(id) : /-free$/i.test(String(id))) ? 'free' : 'paid'].push({ p: pseudo, id }));
     return items;
   }
   const items = { free: [], paid: [] };
@@ -79,6 +80,9 @@ function modelPickerItems() {
 }
 const COPILOT_LABEL = 'CodeSpace Copilot';
 function fillQuick() {
+  // v46: while OpenCode CLI mode owns the model selector, the CodeSpace provider list must never
+  // clobber the discovered OpenCode model list / the user's selected OpenCode model.
+  if (typeof S !== 'undefined' && S.openCodeCLI && typeof fillOpenCodeQuick === 'function') { fillOpenCodeQuick(); return; }
   const q = $('provQuick'); q.innerHTML = '';
   const items = modelPickerItems();
   if (items.free.length) { // Copilot needs at least one free model to switch to
@@ -187,6 +191,15 @@ function renderModelMenu(filter) {
     list.appendChild(b);
   };
   const head = (label, n) => { const h = document.createElement('div'); h.className = 'pm-head'; h.textContent = label + ' (' + n + ')'; list.appendChild(h); };
+  // v46: while OpenCode CLI mode is active, offer a one-tap refresh of the dynamically discovered list.
+  if (Array.isArray(globalThis.__opencodeModelIds)) {
+    const r = document.createElement('button'); r.type = 'button'; r.className = 'pm-item pm-refresh'; r.setAttribute('role', 'button'); r.dataset.value = '__oc_refresh__';
+    r.innerHTML = '<span class="pm-check"></span><span class="pm-main"></span><span class="pm-sub"></span>';
+    r.querySelector('.pm-main').textContent = '↻ Refresh OpenCode models';
+    r.querySelector('.pm-sub').textContent = globalThis.__opencodeModelIds.length + ' discovered';
+    r.onclick = () => { try { Promise.resolve(typeof fillOpenCodeQuick === 'function' ? fillOpenCodeQuick(true) : null).then(() => renderModelMenu('')).catch(() => {}); } catch {} };
+    list.appendChild(r);
+  }
   if (items.free.length && (!needle || COPILOT_LABEL.toLowerCase().includes(needle))) add('copilot::auto', COPILOT_LABEL, 'auto-switch', 'auto');
   [['free', 'Free models'], ['paid', 'Paid models']].forEach(([key, label]) => {
     const rows = items[key].filter(({ p, id }) => !needle || (p.name + ' ' + id).toLowerCase().includes(needle));

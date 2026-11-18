@@ -233,6 +233,34 @@ function ocExecLog(event, data) {
   return line;
 }
 
+/* v46: classify an OpenCode model id as Free by the ONLY rule specified — the model ID ends with
+   "-free" (case-insensitive). It is applied to the id itself, never to a provider label or an
+   unrelated description. A `-free` id does NOT guarantee unlimited usage or available quota. */
+function isFreeOpenCodeModel(id) { return /-free$/i.test(String(id || '').trim()); }
+
+/* v46: normalize an OpenCode structured error event (stdout JSONL) into a stable shape so the
+   lifecycle can report it without ever rendering provider error JSON as an assistant answer.
+   Confirmed shape: {"type":"error","error":{type,message,status,retryAfterMs,"response":{"body":…}}} */
+function normalizeProviderError(ev, part) {
+  const p = (part && typeof part === 'object') ? part : {};
+  const e = (ev && ev.error && typeof ev.error === 'object') ? ev.error
+    : (p.error && typeof p.error === 'object') ? p.error : {};
+  const bodySrc = (e.response && typeof e.response === 'object' && e.response.body != null) ? e.response.body
+    : (e.body != null) ? e.body : (ev && ev.body != null) ? ev.body : '';
+  let body = ''; try { body = typeof bodySrc === 'string' ? bodySrc : JSON.stringify(bodySrc); } catch { body = String(bodySrc || ''); }
+  const statusRaw = (e.status != null) ? e.status : (ev && ev.status != null) ? ev.status : (p.status != null) ? p.status : null;
+  const statusNum = Number(statusRaw);
+  const retryRaw = (e.retryAfterMs != null) ? e.retryAfterMs : (ev && ev.retryAfterMs != null) ? ev.retryAfterMs : null;
+  const retryNum = Number(retryRaw);
+  return {
+    type: String(e.type || (ev && ev.errorType) || (ev && ev.type === 'error' ? 'error' : '') || p.type || 'error').slice(0, 120),
+    message: String(e.message || (ev && ev.message) || p.message || 'The OpenCode provider returned an error.').slice(0, 2000),
+    status: statusRaw == null ? null : (Number.isFinite(statusNum) ? statusNum : String(statusRaw).slice(0, 40)),
+    retryAfterMs: (retryRaw != null && Number.isFinite(retryNum) && retryNum > 0) ? retryNum : null,
+    body: body.slice(0, 2000)
+  };
+}
+
 /* Genuine Android-local OpenCode CLI execution: poll NDJSON output from the native bridge and
    turn it into the same progress/live/done events the remote SSE path produces. Never falls back
    to an AI API — the real CLI binary output drives the result. */
@@ -255,6 +283,9 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
   if (started.mirrored) feedPush && feedPush('Android folder mirrored to a local workspace; changes will sync back after the run.');
   // Parse OpenCode NDJSON events from the growing output file.
   const messageParts = new Map(); const order = []; const seen = new Set(); let plain = ''; let session = started.sessionId || '';
+  // v46: terminal provider errors from the CLI's stdout JSONL are captured SEPARATELY from assistant
+  // text so provider error JSON is never rendered as an AI answer.
+  let providerError = null;
   const onLine = line => {
     line = String(line || '').trim(); if (!line) return;
     let ev; try { ev = JSON.parse(line); } catch { plain = (plain + line + '\n').slice(-40000); return; }
@@ -262,6 +293,13 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
     const part = ev.part || {};
     if (typeof part.sessionID === 'string' && /^ses_[A-Za-z0-9_-]{4,200}$/.test(part.sessionID)) session = part.sessionID;
     const typ = String(ev.type || ev.event || ''), ptyp = String(part.type || '');
+    // v46: {"type":"error",...} / {"part":{"type":"error"}} / any event carrying an `error` object.
+    // Captured separately; never appended to plain/assistant text.
+    if (typ === 'error' || ptyp === 'error' || (ev.error && typeof ev.error === 'object')) {
+      providerError = normalizeProviderError(ev, part);
+      ocExecLog('provider-error-event', { reqId, session, type: providerError.type, status: providerError.status, retryAfterMs: providerError.retryAfterMs });
+      return;
+    }
     if (typ === 'text' || ptyp === 'text') {
       const t = typeof part.text === 'string' ? part.text : (typeof ev.text === 'string' ? ev.text : '');
       if (t) {
@@ -281,7 +319,7 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
   let state = String(started.state || 'STARTING');
   let sawRunning = false;
   ocExecLog('launch', { reqId, session, state, runtime: started.runtime, route: 'android-local:/opencode/run', workspace: started.posixPath, workspaceId: started.workspaceId, mirrored: !!started.mirrored, model: started.model, timeoutMs });
-  let since = 0; let carried = ''; const deadline = Date.now() + timeoutMs + 90 * 1000;
+  let since = 0; let carried = ''; let lastProbeAt = Date.now(); let lastActivityAt = Date.now(); const deadline = Date.now() + timeoutMs + 90 * 1000;
   while (Date.now() < deadline) {
     if (ctrl && ctrl.signal.aborted) { try { await ocLocalCall('/opencode/run/cancel', { sessionId: session }); } catch {} ocExecLog('cancelled', { reqId, session }); throw new DOMException('Aborted', 'AbortError'); }
     let snap; try { snap = await ocLocalCall('/opencode/run/read', { sessionId: session, since }); } catch (e) { ocExecLog('read-error', { reqId, session, error: String(e && e.message || e) }); throw e; }
@@ -297,12 +335,43 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
       sawRunning = true; setBusy(true, 'OpenCode CLI is running…'); updateTurnActivity('assistant', 'working', 'OpenCode CLI is running…');
       ocExecLog('running', { reqId, session, pid: snap.pid });
     }
+    // v46: while RUNNING with no new output, periodically ask the native layer for the REAL process
+    // state (alive? state/wchan? children? output-file size/mtime? elapsed?) so a "zero-byte" run is
+    // diagnosable instead of guessed at. Never logs prompts or secrets.
+    if (snap && snap.started && !snap.exited && Date.now() - lastActivityAt > 20000 && Date.now() - lastProbeAt > 20000) {
+      lastProbeAt = Date.now();
+      try {
+        const pr = await ocLocalCall('/opencode/run/probe', { sessionId: session });
+        ocExecLog('probe', { reqId, session, alive: pr && pr.alive, procState: pr && pr.procState, wchan: pr && pr.wchan, children: pr && pr.children, outSize: pr && pr.outSize, errSize: pr && pr.errSize, sinceOutputMs: pr && pr.sinceOutputMs, elapsedMs: pr && pr.elapsedMs });
+      } catch (e) { ocExecLog('probe-error', { reqId, session, error: String(e && e.message || e) }); }
+    }
     if (snap && snap.data) {
-      carried += snap.data;
+      carried += snap.data; lastActivityAt = Date.now();
       ocExecLog('stdout-chunk', { reqId, session, bytes: snap.data.length });
       let at; while ((at = carried.indexOf('\n')) >= 0) { onLine(carried.slice(0, at)); carried = carried.slice(at + 1); }
     }
     if (typeof snap.next === 'number') since = snap.next;
+    // v46: a terminal provider error (structured JSONL) stops the wait for assistant text. If the CLI
+    // is still alive, terminate ONLY this session's process, wait for its exit result, and return the
+    // structured error to the caller. Never leave "Starting OpenCode CLI" up after a terminal error.
+    if (providerError) {
+      ocExecLog('provider-error-terminal', { reqId, session, type: providerError.type, status: providerError.status, retryAfterMs: providerError.retryAfterMs });
+      if (!snap.exited) { try { await ocLocalCall('/opencode/run/cancel', { sessionId: session }); } catch {} }
+      let code = (snap.code == null ? -1 : snap.code);
+      let waited = 0;
+      while (!snap.exited && waited < 15000) {
+        await new Promise(r => setTimeout(r, 250)); waited += 250;
+        let fin; try { fin = await ocLocalCall('/opencode/run/read', { sessionId: session, since }); } catch { break; }
+        if (fin && typeof fin.next === 'number') since = fin.next;
+        if (fin && fin.data) { carried += fin.data; let at; while ((at = carried.indexOf('\n')) >= 0) { onLine(carried.slice(0, at)); carried = carried.slice(at + 1); } }
+        if (fin && fin.exited) { snap = fin; code = (fin.code == null ? code : fin.code); break; }
+      }
+      const lastMid = order.slice().reverse().find(m => [...(messageParts.get(m) || new Map()).values()].join('').trim());
+      let finalText = lastMid ? [...messageParts.get(lastMid).values()].join('') : '';
+      if (!finalText.trim() && plain.trim()) finalText = plain.trim();
+      ocExecLog('provider-error-return', { reqId, session, code, state: 'FAILED' });
+      return { exitCode: code, sessionId: session, text: finalText, stderr: String(snap.stderr || ''), timedOut: false, state: 'FAILED', providerError };
+    }
     if (snap && snap.exited) {
       if (carried.trim()) onLine(carried);
       const lastMid = order.slice().reverse().find(m => [...(messageParts.get(m) || new Map()).values()].join('').trim());
@@ -313,22 +382,71 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
       const stderr = String(snap.stderr || '');
       if (stderr.trim()) ocExecLog('stderr', { reqId, session, bytes: stderr.length, preview: stderr.replace(/\s+/g, ' ').slice(0, 300) });
       ocExecLog('completed', { reqId, session, code, state: snap.state || state, textLen: finalText.length });
-      return { exitCode: code, sessionId: session, text: finalText, stderr, timedOut: (snap.state === 'TIMED_OUT'), state: snap.state || state };
+      return { exitCode: code, sessionId: session, text: finalText, stderr, timedOut: (snap.state === 'TIMED_OUT'), state: snap.state || state, providerError: providerError || null };
     }
     await new Promise(r => setTimeout(r, 350));
   }
   try { await ocLocalCall('/opencode/run/cancel', { sessionId: session }); } catch {}
   ocExecLog('client-timeout', { reqId, session, state });
-  return { exitCode: -1, sessionId: session, text: '', stderr: 'Timed out after ' + Math.round(timeoutMs / 60000) + ' minutes.', timedOut: true, state: 'TIMED_OUT' };
+  return { exitCode: -1, sessionId: session, text: '', stderr: 'Timed out after ' + Math.round(timeoutMs / 60000) + ' minutes.', timedOut: true, state: 'TIMED_OUT', providerError: providerError || null };
+}
+
+/* v46: human-readable duration for a provider retry delay. */
+function humanDuration(ms) {
+  const s = Math.round(Number(ms) / 1000);
+  if (!Number.isFinite(s) || s <= 0) return '';
+  if (s < 60) return s + 's';
+  const m = Math.round(s / 60);
+  if (m < 60) return m + ' min';
+  const h = Math.floor(m / 60), mm = m % 60;
+  return h + 'h' + (mm ? ' ' + mm + 'm' : '');
+}
+
+/* v46: an actionable, non-JSON provider-error message. Preserves the exact provider error type and
+   the retry delay. This is a provider quota/availability error — never reported as a missing model
+   or an installation failure, and the selected model/configuration is preserved. */
+function formatProviderError(pe) {
+  if (!pe) return 'OpenCode CLI failed.';
+  const type = String(pe.type || '').toLowerCase();
+  const msg = String(pe.message || '').trim();
+  const low = type + ' ' + msg.toLowerCase();
+  let head;
+  if (/free[-_.]?limit|free[-_.]?usage/.test(type)) head = 'This OpenCode provider account has reached its free usage limit.';
+  else if (pe.status === 429 || /rate.?limit|too many requests/.test(low)) head = 'The OpenCode provider is rate-limiting requests (HTTP 429).';
+  else if (pe.status === 401 || pe.status === 403 || /unauthor|invalid api key|authentication/.test(low)) head = 'The OpenCode provider rejected the credentials for this model.';
+  else if (/insufficient|credit|balance|billing|payment|402/.test(low)) head = 'The OpenCode provider account has insufficient credits or a billing restriction.';
+  else if (/not found|unavailable|no such model|unknown model/.test(low)) head = 'The selected OpenCode model is not available from its provider.';
+  else head = 'The OpenCode provider returned an error.';
+  const parts = [head];
+  if (msg && msg.toLowerCase() !== head.toLowerCase()) parts.push(msg);
+  if (pe.type && !/^error$/.test(String(pe.type))) parts.push('(' + pe.type + (pe.status != null ? ' · HTTP ' + pe.status : '') + ')');
+  if (pe.retryAfterMs) { const d = humanDuration(pe.retryAfterMs); if (d) parts.push('Try again in about ' + d + '.'); }
+  parts.push('Your selected model and configuration were kept. This is a provider quota/availability error, not a missing model or an installation problem.');
+  return parts.join(' ');
 }
 
 /* Detect a quota / rate-limit / exhausted-key failure from OpenCode CLI output so we can fall
-   back to the next saved API key against the SAME model. */
+   back to the next saved API key against the SAME model. v46: also inspects the STRUCTURED
+   provider error captured from stdout JSONL (type/status/message/body), not just stderr + text. */
 function looksLikeQuotaFailure(r) {
   if (!r) return false;
-  if (r.exitCode === 0) return false;
-  const s = String((r.stderr || '') + '\n' + (r.text || '')).toLowerCase();
-  return /rate.?limit|quota|too many requests|429|insufficient (quota|credits|balance)|credit balance|exhausted|billing|upgrade (your )?plan|resource.?exhausted|overloaded/.test(s);
+  if (r.exitCode === 0 && !r.providerError) return false;
+  const pe = r.providerError || {};
+  const structured = String((pe.type || '') + ' ' + (pe.status != null ? pe.status : '') + ' ' + (pe.message || '') + ' ' + (pe.body || ''));
+  const s = (structured + '\n' + String((r.stderr || '') + '\n' + (r.text || ''))).toLowerCase();
+  return /provider\.free-limit|free[-_.]?limit|rate.?limit|quota|too many requests|\b429\b|insufficient (quota|credits|balance)|credit balance|exhausted|billing|payment required|\b402\b|upgrade (your )?plan|resource.?exhausted|overloaded/.test(s);
+}
+
+/* v46: a free / account-wide quota limit is NOT a per-key exhaustion. Rotating to another saved key
+   on the SAME provider/account will not restore quota, so we must never auto-rotate for these. */
+function isAccountWideQuotaFailure(r) {
+  if (!r) return false;
+  const pe = r.providerError || null;
+  const type = String((pe && pe.type) || '').toLowerCase();
+  const msg = String((pe && pe.message) || '').toLowerCase();
+  if (/free[-_.]?limit|free[-_.]?usage|account[-_.]?(wide|limit|quota)|daily[-_.]?limit/.test(type)) return true;
+  if (/free usage limit|free (tier|plan) limit|account[- ]wide|daily (free )?(usage )?limit/.test(msg)) return true;
+  return false;
 }
 
 /* Run OpenCode CLI, and when a key is rate-limited/exhausted, rotate to the next saved API key
@@ -349,6 +467,13 @@ async function runOpenCodeAndroidLocal(text, sess) {
       result = await runOpenCodeAndroidLocalOnce(text, sess);
       if (!result || result.exitCode === 0 || ctrl && ctrl.signal.aborted) return result;
       if (!looksLikeQuotaFailure(result)) return result;
+      // v46: an account-wide free/usage limit cannot be fixed by switching to another saved key for
+      // the same provider/account. Report it and stop — never rotate credentials repeatedly.
+      if (isAccountWideQuotaFailure(result)) {
+        ocExecLog('quota-account-wide-no-rotate', { type: (result.providerError && result.providerError.type) || '' });
+        addErr('OpenCode provider quota is exhausted for this account (' + ((result.providerError && result.providerError.type) || 'provider limit') + '). Another key for the same provider/account will not restore quota, so no automatic key switch was attempted. ' + ((result.providerError && result.providerError.retryAfterMs) ? 'Try again in about ' + humanDuration(result.providerError.retryAfterMs) + ', ' : '') + 'or choose a different model/provider.');
+        return result;
+      }
       let rotated;
       try { rotated = await bcall('/opencode/keys/rotate', { reason: 'quota' }); } catch { return result; }
       if (!rotated || !rotated.rotated) {
@@ -458,7 +583,13 @@ async function runOpenCodeChat(text, userDisplayText = text, privateContext = ''
     if (ctrl.signal.aborted) throw new DOMException('Aborted', 'AbortError');
     if (!result) throw new Error(readError || 'OpenCode CLI ended without a completion event. Check that OpenCode is installed and its provider is logged in.');
     if (result.sessionId) sess.openCodeSessionId = result.sessionId;
-    if (result.exitCode !== 0) {
+    if (result.providerError) {
+      // v46: a terminal provider error is delivered as an actionable provider message — never as
+      // provider JSON shown as an AI answer, and never as an indefinite "Starting OpenCode CLI".
+      const pe = result.providerError;
+      ocExecLog('turn-provider-error', { type: pe.type, status: pe.status, retryAfterMs: pe.retryAfterMs });
+      addErr('OpenCode CLI provider error. ' + formatProviderError(pe));
+    } else if (result.exitCode !== 0) {
       const st = String(result.state || '');
       const raw = String(result.stderr || '').replace(/\s+/g, ' ').trim();
       let detail;
@@ -707,25 +838,56 @@ let openCodeModelsCache = null; // OpenCode's own model IDs, shown only while Op
 let openCodeModelsShown = false;
 
 /* Populate the model selector with ONLY OpenCode models while OpenCode CLI mode is active. Uses
-   the real /opencode/models endpoint; CodeSpace/Chat-Z providers are not shown in this mode. */
-async function fillOpenCodeQuick() {
+   the real /opencode/models endpoint (dynamic discovery from the installed CLI); CodeSpace/Chat-Z
+   providers are never shown in this mode. v46: models are grouped Free/Paid by the `-free` suffix of
+   the model ID, and a previously selected model that is no longer available is reported instead of
+   being silently replaced. */
+async function fillOpenCodeQuick(force) {
   const q = $('provQuick'); if (!q) return;
   openCodeModelsShown = true;
+  // Capture the user's current selection BEFORE any await: a concurrent provider refresh (fillQuick)
+  // must never make us forget which OpenCode model the user had picked.
+  const prev = q.value;
+  const prevId = prev.startsWith('opencode::') ? prev.slice('opencode::'.length) : '';
   try {
-    if (!openCodeModelsCache) openCodeModelsCache = await bcall('/opencode/models', {});
-    const models = (openCodeModelsCache && openCodeModelsCache.models) || [];
+    if (!openCodeModelsCache || force) openCodeModelsCache = await bcall('/opencode/models', force ? { refresh: true } : {});
+    const cache = openCodeModelsCache || {};
+    const models = Array.isArray(cache.models) ? cache.models.map(String).filter(Boolean) : [];
+    if (cache.error && !models.length) {
+      // Discovery failed: keep whatever options exist and report clearly (never a silent empty list).
+      addNote('OpenCode model list could not be loaded: ' + String(cache.error).slice(0, 240) + (q.children.length ? ' Keeping the previously loaded models.' : ' Check the CLI in Settings → OpenCode CLI.'));
+      if (typeof syncModelBtn === 'function') syncModelBtn();
+      return;
+    }
+    if (!models.length) { addNote('OpenCode reported no models for the current setup. Sign in to a provider or add a key in Settings → OpenCode CLI.'); return; }
     // Publish to the shared model picker so the popup shows only OpenCode models.
     if (typeof globalThis !== 'undefined') globalThis.__opencodeModelIds = models.slice();
-    const prev = q.value;
+    const free = Array.isArray(cache.free) && cache.free.length ? cache.free.map(String) : models.filter(isFreeOpenCodeModel);
+    const paid = Array.isArray(cache.paid) && cache.paid.length ? cache.paid.map(String) : models.filter(id => !isFreeOpenCodeModel(id));
+    const cur = String(cache.configured || cache.default || '');
     q.innerHTML = '';
-    const g = document.createElement('optgroup'); g.label = 'OpenCode models (' + models.length + ')';
-    models.forEach(id => { const o = document.createElement('option'); o.value = 'opencode::' + id; o.textContent = id; g.appendChild(o); });
-    q.appendChild(g);
-    const cur = (openCodeModelsCache && openCodeModelsCache.configured) || (openCodeModelsCache && openCodeModelsCache.default) || '';
-    const want = 'opencode::' + cur;
-    q.value = models.some(m => 'opencode::' + m === prev) ? prev : (models.some(m => 'opencode::' + m === want) ? want : (q.firstChild && q.firstChild.value ? q.firstChild.value : ''));
+    const addGroup = (label, list) => {
+      if (!list.length) return;
+      const g = document.createElement('optgroup'); g.label = label + ' (' + list.length + ')';
+      list.forEach(id => { const o = document.createElement('option'); o.value = 'opencode::' + id; o.textContent = id; g.appendChild(o); });
+      q.appendChild(g);
+    };
+    // A previously selected model that is gone is shown as unavailable (never silently swapped).
+    if (prevId && !models.includes(prevId)) {
+      const o = document.createElement('option'); o.value = 'opencode::' + prevId; o.textContent = prevId + ' (unavailable)'; o.disabled = true; q.appendChild(o);
+    }
+    addGroup('Free models', free);
+    addGroup('Paid models', paid);
+    // Selection precedence: keep the user's current pick ALWAYS (even if it is no longer available —
+    // it is shown as unavailable and reported below, never silently replaced); otherwise the
+    // configured model; otherwise the first discovered model.
+    const want = prevId ? prevId : (models.includes(cur) ? cur : (models[0] || ''));
+    q.value = 'opencode::' + want;
+    if (prevId && !models.includes(prevId)) addErr('The selected OpenCode model "' + prevId + '" is no longer available. The list was refreshed — choose a model to continue.');
     if (typeof syncModelBtn === 'function') syncModelBtn();
-  } catch { /* keep existing options if the model list can't be loaded */ }
+  } catch (e) {
+    addNote('OpenCode model list could not be loaded: ' + String(e && e.message || e) + (q.children.length ? ' Keeping the current selection.' : ''));
+  }
 }
 function syncThinkVisibility() {
   const ts = $('thinkSel'); if (!ts) return;
