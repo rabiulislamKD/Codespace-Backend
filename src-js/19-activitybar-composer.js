@@ -195,11 +195,24 @@ function currentOpenCodeModel() {
   return (openCodeModelsCache && openCodeModelsCache.configured) || '';
 }
 
+/* v43: Android-local OpenCode execution calls the native adapter DIRECTLY (never bcall), so a
+   remote bridge URL can never redirect an Android-folder run to the remote agent-server, which
+   has no Android folder. Falls back to bcall only if the native adapter is somehow absent. */
+function ocLocalCall(pathname, body) {
+  try {
+    if (typeof csNativeCall === 'function' && window.CodeSpaceNative &&
+        typeof window.CodeSpaceNative.localApiCall === 'function') {
+      return csNativeCall(pathname, body, undefined);
+    }
+  } catch (e) { /* fall through to bcall */ }
+  return bcall(pathname, body);
+}
+
 /* Genuine Android-local OpenCode CLI execution: poll NDJSON output from the native bridge and
    turn it into the same progress/live/done events the remote SSE path produces. Never falls back
    to an AI API — the real CLI binary output drives the result. */
 async function runOpenCodeAndroidLocalOnce(text, sess) {
-  const started = await bcall('/opencode/run', {
+  const started = await ocLocalCall('/opencode/run', {
     prompt: text, sessionId: sess.openCodeSessionId || '', autoApprove: !!S.openCodeAutoApprove, title: sess.title,
     model: currentOpenCodeModel(),
     thinkLevel: (typeof S !== 'undefined' && S.thinkLevel) ? S.thinkLevel : 'off'
@@ -239,8 +252,8 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
   };
   let since = 0; let carried = ''; const deadline = Date.now() + 60 * 60 * 1000;
   while (Date.now() < deadline) {
-    if (ctrl && ctrl.signal.aborted) { try { await bcall('/opencode/run/cancel', { sessionId: session }); } catch {} throw new DOMException('Aborted', 'AbortError'); }
-    let snap; try { snap = await bcall('/opencode/run/read', { sessionId: session, since }); } catch (e) { throw e; }
+    if (ctrl && ctrl.signal.aborted) { try { await ocLocalCall('/opencode/run/cancel', { sessionId: session }); } catch {} throw new DOMException('Aborted', 'AbortError'); }
+    let snap; try { snap = await ocLocalCall('/opencode/run/read', { sessionId: session, since }); } catch (e) { throw e; }
     if (snap && snap.data) {
       carried += snap.data;
       let at; while ((at = carried.indexOf('\n')) >= 0) { onLine(carried.slice(0, at)); carried = carried.slice(at + 1); }
@@ -251,12 +264,12 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
       const lastMid = order.slice().reverse().find(m => [...(messageParts.get(m) || new Map()).values()].join('').trim());
       let finalText = lastMid ? [...messageParts.get(lastMid).values()].join('') : '';
       if (!finalText.trim() && plain.trim()) finalText = plain.trim();
-      if (started.mirrored) { try { const s = await bcall('/opencode/workspace/sync-out', {}); if (s.conflicts && s.conflicts.length) addErr('Some OpenCode changes were not synced back (conflicts): ' + s.conflicts.map(c => c.path).join(', ')); else feedPush('Android folder synchronized (' + (s.written || 0) + ' file(s)).'); } catch {} }
+      if (started.mirrored) { try { const s = await ocLocalCall('/opencode/workspace/sync-out', {}); if (s.conflicts && s.conflicts.length) addErr('Some OpenCode changes were not synced back (conflicts): ' + s.conflicts.map(c => c.path).join(', ')); else feedPush('Android folder synchronized (' + (s.written || 0) + ' file(s)).'); } catch {} }
       return { exitCode: snap.code == null ? -1 : snap.code, sessionId: session, text: finalText, stderr: snap.stderr || '', timedOut: false };
     }
     await new Promise(r => setTimeout(r, 350));
   }
-  try { await bcall('/opencode/run/cancel', { sessionId: session }); } catch {}
+  try { await ocLocalCall('/opencode/run/cancel', { sessionId: session }); } catch {}
   return { exitCode: -1, sessionId: session, text: '', stderr: 'Timed out after 60 minutes.', timedOut: true };
 }
 
@@ -298,15 +311,23 @@ async function runOpenCodeChat(text, userDisplayText = text, privateContext = ''
   // device CLI — never the remote server, which has no Android folder.
   const hasAndroidWorkspace = !!(activeWorkspaceState && activeWorkspaceState.platform === 'android');
   const nativeMode = (L.bridgeUrl === 'codespace-native://local' || isAndroidFolderWorkspace());
+  // v43 workspace trace. The full workspace/state dump is logged by refreshWorkspaceInfo(); this
+  // records the final routing decision and the endpoint it selects.
+  try { ocWsLog('runOpenCodeChat:route', { nativeMode, isAndroidFolderWorkspace: isAndroidFolderWorkspace(), endpoint: nativeMode ? 'android-local:/opencode/run' : (L.bridgeUrl.replace(/\/+$/, '') + '/opencode/run') }); } catch (e) {}
   if (nativeMode) {
     // Missing/revoked/unavailable folder: clear, actionable error; no remote/Zen fallback.
     if (hasAndroidWorkspace && !activeWorkspaceState.available) {
       addErr('OpenCode CLI cannot start: ' + (activeWorkspaceState.error || 'the selected folder is unavailable') + ' Open Folder to select a valid project folder.');
       return;
     }
-    // Use the single-flight probe so a send does not launch a second concurrent Termux RUN_COMMAND.
-    await refreshOpenCodeStatus();
+    // Cached-first availability (same rule as the tap): await an in-flight probe, and only run a
+    // fresh one when we have no valid status. A transient probe failure must NOT reset the current
+    // selection (that would silently restore CodeSpace) — it only blocks this dispatch with a
+    // clear reason. The actual run below is the real execution gate.
+    if (!opencodeRuntimeAvailable()) { await awaitOpenCodeStatusIfInFlight(); }
     let status = lastOpenCodeStatus || {};
+    if (!opencodeRuntimeAvailable()) { await refreshOpenCodeStatus(); status = lastOpenCodeStatus || {}; }
+    ocLog('runOpenCodeChat:dispatch-check', JSON.stringify({ nativeMode, available: opencodeRuntimeAvailable(), termuxState: status.termuxState }));
     if (!opencodeRuntimeAvailable()) {
       const why = status && status.message ? status.message : '';
       const st = status && status.termuxState ? ' [' + status.termuxState + ']' : '';
@@ -527,6 +548,28 @@ const ROUTE_LABEL = { codespace: 'CodeSpace', opencode: 'OpenCode', zai: 'Chat Z
 const currentRoute = () => S.openCodeCLI ? 'opencode' : S.chatZaiCLI ? 'zai' : 'codespace';
 let lastOpenCodeStatus = null; // result of the real /opencode/status probe (never faked)
 
+/* v42 diagnostics. Unique prefix so a device logcat/console capture can be filtered:
+   `adb logcat | grep OPENCODE_SELECT_V42`. Temporary instrumentation for the selection bug. */
+function ocLog(...args) { try { console.log('[OPENCODE_SELECT_V42]', ...args); } catch {} }
+
+/* v43 workspace-routing diagnostics. Unique prefix `[OPENCODE_WORKSPACE_V43]`. Written to the
+   WebView console AND pushed to the native /diag/log endpoint so a physical-device capture of
+   /sdcard/Download/codespace-diagnostics.txt shows the REAL workspace state and route (the web
+   console alone is not captured there). Never throws, never blocks. */
+function ocWsLog(event, data) {
+  let line;
+  try { line = '[OPENCODE_WORKSPACE_V43] ' + event + (data === undefined ? '' : ' ' + JSON.stringify(data)); }
+  catch (e) { line = '[OPENCODE_WORKSPACE_V43] ' + event; }
+  try { console.log(line); } catch (e) {}
+  try {
+    if (typeof csNativeCall === 'function' && window.CodeSpaceNative &&
+        typeof window.CodeSpaceNative.localApiCall === 'function') {
+      csNativeCall('/diag/log', { msg: line }).catch(() => {});
+    }
+  } catch (e) {}
+  return line;
+}
+
 /* True when the Android-native OpenCode runtime is genuinely usable. The native /opencode/status
    reports termuxState OK only after a real `opencode --version` succeeded. We do NOT require an
    API key, a remote server, OpenCode Zen or a model list to enable the CLI *execution* option —
@@ -545,13 +588,15 @@ function opencodeRuntimeAvailable() {
 let opencodeStatusInFlight = null;
 function refreshOpenCodeStatus() {
   if (opencodeStatusInFlight) return opencodeStatusInFlight;
+  ocLog('probe:start /opencode/status');
   opencodeStatusInFlight = (async () => {
     try {
       if (typeof bcall === 'function') {
         const s = await bcall('/opencode/status', {}, undefined);
         if (s && typeof s === 'object') lastOpenCodeStatus = s;
       }
-    } catch {}
+    } catch (e) { ocLog('probe:error', e && e.message); }
+    ocLog('probe:done', JSON.stringify({ termuxState: lastOpenCodeStatus && lastOpenCodeStatus.termuxState, installed: lastOpenCodeStatus && lastOpenCodeStatus.installed, runtimeKind: lastOpenCodeStatus && lastOpenCodeStatus.runtimeKind }));
     if (typeof syncOpenCodeUI === 'function') syncOpenCodeUI();
     return lastOpenCodeStatus;
   })();
@@ -561,19 +606,29 @@ function refreshOpenCodeStatus() {
   );
   return opencodeStatusInFlight;
 }
+/* Wait for an already-running probe (boot/menu-open) without starting a new one. A tap must never
+   launch a *fresh* Termux probe: a transient failure would overwrite a valid cached OK status and
+   veto the selection even though the menu already showed the CLI as ready. */
+async function awaitOpenCodeStatusIfInFlight() {
+  if (opencodeStatusInFlight) { try { await opencodeStatusInFlight; } catch {} }
+  return lastOpenCodeStatus;
+}
 /* Canonical "select OpenCode CLI" commit. Writes the SAME state the selector reads (currentRoute)
    and the composer dispatches on (send), persists it, and synchronizes the UI. Nothing else owns
    the selection — this is the single source of truth, so a refresh cannot overwrite it. */
 function selectOpenCodeLocal(status) {
+  ocLog('selectOpenCodeLocal:enter', JSON.stringify({ before: { openCodeCLI: S.openCodeCLI, chatZaiCLI: S.chatZaiCLI, copilotAuto: S.copilotAuto }, status: status && status.termuxState }));
   S.openCodeCLI = true;
   S.chatZaiCLI = false;
   S.copilotAuto = false;
   S.updated = Date.now();
   saveLocal();
+  ocLog('selectOpenCodeLocal:after-assign+save', JSON.stringify({ openCodeCLI: S.openCodeCLI, chatZaiCLI: S.chatZaiCLI, copilotAuto: S.copilotAuto, updated: S.updated, persisted: (() => { try { return JSON.parse(localStorage.getItem('agent3.state') || '{}').openCodeCLI; } catch { return 'n/a'; } })(), currentRoute: currentRoute() }));
   try { if (typeof syncMode === 'function') syncMode(); } catch {}
   try { if (typeof updateMeters === 'function') updateMeters(); } catch {}
   try { if (typeof syncOpenCodeUI === 'function') syncOpenCodeUI(); } catch {}
   if (B.ok) { try { pushConfig(); } catch {} }
+  ocLog('selectOpenCodeLocal:after-ui-sync', JSON.stringify({ currentRoute: currentRoute(), btnRoute: (() => { try { return $('routeBtn').dataset.route; } catch { return 'n/a'; } })(), btnLabel: (() => { try { const t = $('routeBtn').querySelector('.rt-txt'); return t ? t.textContent : 'n/a'; } catch { return 'n/a'; } })() }));
   const ver = status && status.version ? status.version : 'version unknown';
   const kind = status && status.runtimeKind ? status.runtimeKind : 'local';
   addNote('OpenCode CLI — Android Local enabled (' + ver + ', ' + kind + '). Chat messages now run the real OpenCode CLI on this device against your selected Android folder. Click the engine selector again to go back.');
@@ -611,6 +666,7 @@ function syncThinkVisibility() {
 function syncOpenCodeUI() {
   const btn = $('routeBtn'); if (!btn) return;
   const route = currentRoute(), ready = !!(B.ok && B.info && B.info.root), on = route === 'opencode';
+  ocLog('syncOpenCodeUI:render', JSON.stringify({ route, on, openCodeCLI: S.openCodeCLI, chatZaiCLI: S.chatZaiCLI }));
   btn.dataset.route = route; btn.classList.toggle('on', route !== 'codespace');
   btn.querySelector('.rt-txt').textContent = ROUTE_LABEL[route];
   btn.setAttribute('aria-label', 'Chat engine: ' + ROUTE_LABEL[route]);
@@ -874,6 +930,13 @@ $('ocClearKey').onclick = async () => {
 let activeWorkspaceState = null;
 
 function isAndroidFolderWorkspace() {
+  // v43: canonical native state is definitive when it carries the workspace kind. A non-app-private
+  // kind means the user HAS selected a folder on the device, even if it is currently unavailable
+  // (revoked permission) — that must never be mistaken for "no Android workspace" and fall through
+  // to the remote server.
+  if (activeWorkspaceState && activeWorkspaceState.platform === 'android' && activeWorkspaceState.kind) {
+    return activeWorkspaceState.kind !== 'app-private';
+  }
   try {
     if (window.CodeSpaceNative && typeof window.CodeSpaceNative.hasLocalWorkspace === 'function' &&
         window.CodeSpaceNative.hasLocalWorkspace()) return true;
@@ -885,8 +948,46 @@ function isAndroidFolderWorkspace() {
 }
 
 /* Re-fetch the canonical native workspace state + /info so all consumers see one consistent,
-   validated workspace (survives folder pick, server switch, reconnect, restart, permission loss). */
+   validated workspace (survives folder pick, server switch, reconnect, restart, permission loss).
+   v43: query the native adapter DIRECTLY — /workspace/state and /info are pure device endpoints,
+   so a stale hasLocalWorkspace()/remote /info can no longer hide a selected Android folder (the
+   old bcall() gate did exactly that and sent OpenCode to the remote server, which has no Android
+   folder and replied "Open a workspace folder in My Chat Agent first."). */
 async function refreshWorkspaceInfo() {
+  const log = (typeof ocWsLog === 'function') ? ocWsLog : function () {};
+  const nativeAdapter = !!(typeof csNativeCall === 'function' && window.CodeSpaceNative &&
+    typeof window.CodeSpaceNative.localApiCall === 'function');
+  if (nativeAdapter) {
+    try {
+      const st = await csNativeCall('/workspace/state', {}, undefined);
+      if (st && typeof st === 'object' && st.ok) activeWorkspaceState = st;
+    } catch (e) { log('workspace/state error', String((e && e.message) || e)); }
+    const androidSelected = !!(activeWorkspaceState && activeWorkspaceState.platform === 'android' &&
+      activeWorkspaceState.kind && activeWorkspaceState.kind !== 'app-private');
+    if (androidSelected) {
+      // The device is authoritative: never overwrite a valid Android workspace with stale remote /info.
+      try {
+        const info = await csNativeCall('/info', {}, undefined);
+        if (info && typeof info === 'object') { B.info = info; B.ok = true; }
+      } catch (e) { log('/info (native) error', String((e && e.message) || e)); }
+    } else {
+      // No Android folder selected: the selected remote/Local bridge owns /info.
+      try {
+        const info = await bcall('/info', {}, undefined);
+        if (info && typeof info === 'object') { B.info = info; B.ok = true; }
+      } catch (e) { log('/info error', String((e && e.message) || e)); }
+    }
+    const i = B.info || {};
+    log('refreshWorkspaceInfo', {
+      bridgeUrl: L.bridgeUrl,
+      hasLocalWorkspace: (() => { try { return !!(window.CodeSpaceNative && typeof window.CodeSpaceNative.hasLocalWorkspace === 'function' && window.CodeSpaceNative.hasLocalWorkspace()); } catch (e) { return 'error'; } })(),
+      workspaceState: activeWorkspaceState,
+      info: { platform: i.platform || null, root: i.root || null, fileProvider: i.fileProvider || null, safWorkspace: !!i.safWorkspace, workspaceKind: i.workspaceKind || null },
+      isAndroidFolderWorkspace: isAndroidFolderWorkspace()
+    });
+    return;
+  }
+  // No native adapter (desktop/browser): the remote bridge is authoritative.
   try {
     if (typeof bcall === 'function') {
       try {
@@ -939,16 +1040,29 @@ async function toggleOpenCode() {
   if ((!B.info || !B.info.root) && !nativeMode) { addErr('OpenCode cannot start: no workspace folder is open. Use File > Open Folder (or the Open folder button in the empty Explorer), choose your project folder, then click OpenCode again.'); return; }
   const btn = $('routeBtn'); btn.disabled = true; btn.title = 'Checking OpenCode CLI…';
   try {
-    // Use the single-flight probe (shared with menu-open/boot) so a tap never launches a second
-    // concurrent Termux RUN_COMMAND that could fail transiently and veto a valid selection.
-    await refreshOpenCodeStatus();
-    let status = lastOpenCodeStatus || {};
+    ocLog('toggleOpenCode:enter', JSON.stringify({ nativeMode, openCodeCLI: S.openCodeCLI, chatZaiCLI: S.chatZaiCLI }));
     if (nativeMode) {
-      // Explicit routing: Android selected workspace + real local CLI available -> CLI Android Local.
-      // Runtime availability comes from the real probe (termuxState OK), not API keys/model lists.
+      // v42 root-cause fix: the tap must NOT launch a *fresh* Termux probe. The menu-open probe
+      // (and the boot probe) already populate lastOpenCodeStatus; opencodeRuntimeAvailable() reads
+      // that authoritative cached status. A redundant tap-time probe could transiently fail and
+      // overwrite the valid OK status, which vetoed selection (the reported bug). If a valid status
+      // is already cached we commit immediately; otherwise we await an in-flight probe, and only
+      // start a real probe when we still have no valid status.
+      if (!opencodeRuntimeAvailable()) {
+        await awaitOpenCodeStatusIfInFlight();
+      }
+      let status = lastOpenCodeStatus || {};
+      ocLog('availability:cached', JSON.stringify({ available: opencodeRuntimeAvailable(), termuxState: status.termuxState, installed: status.installed, runtimeKind: status.runtimeKind }));
+      if (!opencodeRuntimeAvailable()) {
+        ocLog('availability:cached-miss -> one real probe');
+        await refreshOpenCodeStatus();
+        status = lastOpenCodeStatus || {};
+        ocLog('availability:after-probe', JSON.stringify({ available: opencodeRuntimeAvailable(), termuxState: status.termuxState, installed: status.installed, runtimeKind: status.runtimeKind }));
+      }
       if (!opencodeRuntimeAvailable()) {
         const why = status && status.message ? status.message : '';
         const st = status && status.termuxState ? ' [' + status.termuxState + ']' : '';
+        ocLog('toggleOpenCode:BLOCKED runtime unavailable', JSON.stringify({ termuxState: status.termuxState, message: why }));
         addErr('OpenCode CLI is unavailable on this device' + st + '. ' + why + ' Open Settings → OpenCode CLI → Check again to retry. OpenCode CLI is NOT silently switched to OpenCode Zen or a remote provider.');
         return;
       }
@@ -958,7 +1072,9 @@ async function toggleOpenCode() {
       selectOpenCodeLocal(status);
       return;
     }
-    // Remote server workspace -> OpenCode CLI Remote.
+    // Remote server workspace -> OpenCode CLI Remote. (Needs a fresh probe of the remote server.)
+    await refreshOpenCodeStatus();
+    let status = lastOpenCodeStatus || {};
     if (!status.installed && status.canInstall) {
       if (!confirm('OpenCode is not installed on the remote server.\n\nInstall it for CodeSpace now? It is downloaded from the npm registry and checked, goes into CodeSpace\u2019s own data folder, and needs no administrator rights.')) { addNote('OpenCode install cancelled.'); return; }
       addNote('Installing OpenCode for CodeSpace…'); btn.title = 'Installing OpenCode…';
@@ -977,11 +1093,13 @@ async function toggleOpenCode() {
 /* 3.18.3: one "engine" dropdown replaces the separate OpenCode and Chat Z.ai switches. */
 function closeRouteMenu() { const m = $('routeMenu'); if (m) m.hidden = true; $('routeBtn').setAttribute('aria-expanded', 'false'); }
 async function setRoute(route) {
+  ocLog('setRoute:enter', JSON.stringify({ route, before: { openCodeCLI: S.openCodeCLI, chatZaiCLI: S.chatZaiCLI } }));
   closeRouteMenu();
   if (route === 'opencode') { if (!S.openCodeCLI) await toggleOpenCode(); }
   else if (route === 'zai') { if (!S.chatZaiCLI) await toggleChatZai(); }
   else if (S.openCodeCLI) await toggleOpenCode();
   else if (S.chatZaiCLI) await toggleChatZai();
+  ocLog('setRoute:done', JSON.stringify({ route, after: { openCodeCLI: S.openCodeCLI, chatZaiCLI: S.chatZaiCLI }, currentRoute: currentRoute() }));
 }
 $('routeBtn').onclick = e => {
   e.stopPropagation(); const m = $('routeMenu');
@@ -991,7 +1109,7 @@ $('routeBtn').onclick = e => {
   // shown as unavailable because of a stale/null status. Selection is never reset here.
   if (!m.hidden && typeof refreshOpenCodeStatus === 'function') refreshOpenCodeStatus().catch(() => {});
 };
-$('routeMenu').addEventListener('click', e => { const o = e.target.closest('[data-route]'); if (o) setRoute(o.dataset.route).catch(err => addErr(err.message)); });
+$('routeMenu').addEventListener('click', e => { const o = e.target.closest('[data-route]'); ocLog('menu:click', JSON.stringify({ target: e.target && e.target.tagName, route: o && o.dataset.route })); if (o) setRoute(o.dataset.route).catch(err => { ocLog('menu:click-error', err && err.message); addErr(err.message); }); });
 document.addEventListener('pointerdown', e => { if (!$('routeWrap').contains(e.target)) closeRouteMenu(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('routeMenu').hidden) { closeRouteMenu(); $('routeBtn').focus(); } });
 /* busy / retry text no longer takes space in the composer; it stays available as the Stop button's tooltip */

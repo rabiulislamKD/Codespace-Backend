@@ -45,7 +45,12 @@ function commitEnv(initial) {
     console,
     saveLocal: () => saved.push(JSON.stringify(ctx.S)),
     syncMode: () => {}, updateMeters: () => {}, syncOpenCodeUI: () => {}, pushConfig: () => {},
-    addNote: m => notes.push(String(m))
+    addNote: m => notes.push(String(m)),
+    /* v42 diagnostics + helpers referenced by selectOpenCodeLocal */
+    ocLog: () => {},
+    currentRoute: () => (ctx.S.openCodeCLI ? 'opencode' : ctx.S.chatZaiCLI ? 'zai' : 'codespace'),
+    $: () => ({ dataset: {}, querySelector: () => null }),
+    localStorage: { getItem: () => null }
   });
   const fn = extract(composer, 'selectOpenCodeLocal');
   vm.runInContext(fn + '\n;this.fn = selectOpenCodeLocal;', ctx);
@@ -104,7 +109,7 @@ check('toggleOpenCode uses shared probe (no direct duplicate bcall for status)',
 });
 check('runOpenCodeChat send path uses shared probe', () => {
   const i = composer.indexOf('async function runOpenCodeChat');
-  const fn = composer.slice(i, i + 1400);
+  const fn = composer.slice(i, i + 3200);
   assert.match(fn, /await refreshOpenCodeStatus\(\)/);
   assert.doesNotMatch(fn, /await bcall\('\/opencode\/status', \{\}, undefined\)/);
 });

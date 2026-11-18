@@ -30,7 +30,7 @@ function extract(name) {
   throw new Error('unbalanced braces in ' + name);
 }
 
-const HELPERS = ['opencodeRuntimeAvailable', 'refreshOpenCodeStatus', 'selectOpenCodeLocal', 'isAndroidFolderWorkspace', 'refreshWorkspaceInfo', 'declineOpenCodeForAndroidFolder', 'redirectToOpenCodeZen', 'toggleOpenCode', 'runOpenCodeChat'];
+const HELPERS = ['opencodeRuntimeAvailable', 'refreshOpenCodeStatus', 'awaitOpenCodeStatusIfInFlight', 'selectOpenCodeLocal', 'isAndroidFolderWorkspace', 'refreshWorkspaceInfo', 'declineOpenCodeForAndroidFolder', 'redirectToOpenCodeZen', 'toggleOpenCode', 'runOpenCodeChat'];
 
 function makeEnv(opts) {
   opts = opts || {};
@@ -61,6 +61,8 @@ function makeEnv(opts) {
       return {};
     },
     saveLocal() {}, syncMode() {}, updateMeters() {}, pushConfig() {}, syncOpenCodeUI() {},
+    ocLog() {},
+    currentRoute: () => (state.S.openCodeCLI ? 'opencode' : state.S.chatZaiCLI ? 'zai' : 'codespace'),
     openView: v => state.openedViews.push(v), showView: v => state.openedViews.push(v),
     pickCard: c => state.pickedCards.push(c),
     confirm: () => true,

@@ -62,6 +62,25 @@ const CS_LOCAL_FILE_EP = /^\/(info|workspace\/(dirs|state|active)|fs\/(list|read
 // NEVER be sent to the remote Render/Codespace server (which has no Android folder and no
 // /opencode/keys/* endpoints -> "Unknown endpoint"). All of these are served by the native bridge.
 const CS_ANDROID_NATIVE_EP = /^\/opencode\//;
+// v43: OpenCode CLI EXECUTION endpoints. When the active workspace is a folder on the Android
+// device these MUST run through the native adapter — the remote agent-server has no Android folder
+// and rejects the run with "Open a workspace folder in My Chat Agent first." A genuine remote or
+// desktop workspace (no Android folder selected) still uses the remote /opencode/run.
+// (/opencode/workspace/sync-in|sync-out and the key/status/model endpoints are already covered by
+//  the always-native metadata rule below.)
+const CS_OPENCODE_RUN_EP = /^\/opencode\/(run|run\/read|run\/cancel)$/;
+// True when a folder on the Android device is the active workspace. Prefers the canonical native
+// signal (isAndroidFolderWorkspace) and falls back to the direct native hasLocalWorkspace() probe.
+function csAndroidWorkspaceActive() {
+  try {
+    if (typeof isAndroidFolderWorkspace === 'function' && isAndroidFolderWorkspace()) return true;
+  } catch {}
+  try {
+    if (window.CodeSpaceNative && typeof window.CodeSpaceNative.hasLocalWorkspace === 'function' &&
+        window.CodeSpaceNative.hasLocalWorkspace()) return true;
+  } catch {}
+  return false;
+}
 
 async function bcall(pathname, body, signal) {
   // Android Local mode uses the app-private native workspace adapter; it never falls back
@@ -76,6 +95,12 @@ async function bcall(pathname, body, signal) {
   const opencodeMeta = /^\/opencode\/(keys|auth|models|status|install|workspace)/.test(pathname);
   if (opencodeMeta && window.CodeSpaceNative &&
       typeof window.CodeSpaceNative.localApiCall === 'function') {
+    return await csNativeCall(pathname, body, signal);
+  }
+
+  // v43: OpenCode EXECUTION for an Android folder runs on the device, never on the remote server.
+  if (CS_OPENCODE_RUN_EP.test(pathname) && window.CodeSpaceNative &&
+      typeof window.CodeSpaceNative.localApiCall === 'function' && csAndroidWorkspaceActive()) {
     return await csNativeCall(pathname, body, signal);
   }
 
