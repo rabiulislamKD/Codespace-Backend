@@ -327,6 +327,31 @@ test('v47.1 [7h]: the CLI requires a provider-prefixed id and discovery retries 
   assert.match(JS, /isOpenCodeModelReferenceError/, 'the model-error guard exists in the formatter');
 });
 
+/* ==================== [7i] provider.no-route / case-sensitive ids (v47.2) ==================== */
+
+test('v47.2 [7i]: provider.no-route is a model-selection error with a case-sensitivity hint', async () => {
+  const payload = line({ type: 'error', error: { type: 'provider.no-route', message: 'Model unavailable: Opencode/big-pickle' } });
+  const h = androidComposer({ runReply: runReply('ses_noroute'), runReadQueue: errorQueue(payload, 1) });
+  ready(h);
+  const res = await h.api.runOpenCodeAndroidLocalOnce('hi', { openCodeSessionId: '', title: 't' });
+  assert.equal(res.state, 'FAILED');
+  assert.equal(res.providerError.type, 'provider.no-route');
+  const msg = h.api.formatProviderError(res.providerError);
+  assert.match(msg, /no provider route/i);
+  assert.match(msg, /case-sensitive/i);
+  assert.match(msg, /opencode\/big-pickle/i);
+  assert.doesNotMatch(msg, /provider quota\/availability error|Free quota exhausted/i);
+  assert.equal(h.api.looksLikeQuotaFailure(res), false);
+});
+
+test('v47.2 [7j]: saved ids are normalized to the exact discovered id and the picker resolves casing', () => {
+  assert.match(MA, /normalizeOpenCodeModelId/, 'Kotlin normalizes a saved model id');
+  assert.match(MA, /it\.equals\(configured, ignoreCase = true\)/, 'discovery self-heals a mis-cased saved id');
+  assert.match(MA, /m\.substring\(0, slash\)\.lowercase\(\)/, 'the provider prefix is lowercased as a fallback');
+  assert.match(JS, /exactId\(prevId\)/, 'the picker resolves a mis-cased selection case-insensitively');
+  assert.match(JS, /no\[- \]route/, 'no-route is recognized as a model error');
+});
+
 /* ==================== [8] cancellation of a child process ==================== */
 
 test('v47 [8]: cancellation kills the shell AND the CLI child, verified before success', () => {

@@ -413,7 +413,7 @@ function humanDuration(ms) {
 function isOpenCodeModelReferenceError(pe) {
   if (!pe) return false;
   const low = (String(pe.type || '') + ' ' + String(pe.message || '')).toLowerCase();
-  return /invalid model|model reference|\(unknown\)|unknown model|no such model|model .*(not found|unavailable|not available)|model is not available/.test(low);
+  return /invalid model|model reference|\(unknown\)|unknown model|no such model|no[- ]route|model .*(not found|unavailable|not available)|model is not available/.test(low);
 }
 
 function formatProviderError(pe) {
@@ -422,13 +422,14 @@ function formatProviderError(pe) {
   const msg = String(pe.message || '').trim();
   const low = type + ' ' + msg.toLowerCase();
   const quotaTail = 'Your selected model and configuration were kept. This is a provider quota/availability error, not a missing model or an installation problem.';
-  const modelTail = 'Your configuration was kept. Choose an available model from the OpenCode model list (provider/model, for example opencode/big-pickle) to continue. This is a model-selection problem, not a quota or installation problem.';
+  const modelTail = 'Your configuration was kept. Choose an available model from the OpenCode model list (provider/model, for example opencode/big-pickle) to continue. Ids are case-sensitive and the provider prefix is lowercase. This is a model-selection problem, not a quota or installation problem.';
   const authTail = 'Your selected model was kept. Check the API key for this provider in Settings → OpenCode CLI. This is a credential problem, not a quota or installation problem.';
   let head, tail = quotaTail;
   if (/free[-_.]?limit|free[-_.]?usage/.test(type)) head = 'Free quota exhausted — this OpenCode provider account has reached its free usage limit.';
   else if (pe.status === 429 || /rate.?limit|too many requests/.test(low)) head = 'The OpenCode provider is rate-limiting requests (HTTP 429).';
   else if (pe.status === 401 || pe.status === 403 || /unauthor|invalid api key|authentication/.test(low)) { head = 'The OpenCode provider rejected the credentials for this model.'; tail = authTail; }
   else if (/insufficient|credit|balance|billing|payment|402/.test(low)) head = 'The OpenCode provider account has insufficient credits or a billing restriction.';
+  else if (/no[- ]route/.test(low)) { head = 'The selected OpenCode model has no provider route — check the exact id and casing.'; tail = modelTail; }
   else if (isOpenCodeModelReferenceError(pe) || /not found|unavailable|no such model/.test(low)) { head = 'The selected OpenCode model is not available from its provider.'; tail = modelTail; }
   else { head = 'The OpenCode provider returned an error.'; tail = 'Your selected model and configuration were kept.'; }
   const parts = [head];
@@ -882,6 +883,10 @@ async function fillOpenCodeQuick(force) {
     const free = Array.isArray(cache.free) && cache.free.length ? cache.free.map(String) : models.filter(isFreeOpenCodeModel);
     const paid = Array.isArray(cache.paid) && cache.paid.length ? cache.paid.map(String) : models.filter(id => !isFreeOpenCodeModel(id));
     const cur = String(cache.configured || cache.default || '');
+    // v47.2: ids are case-sensitive. Map a mis-cased saved id to the exact discovered id instead of
+    // showing it as unavailable (the CLI rejects "Opencode/big-pickle" with provider.no-route).
+    const exactId = id => models.find(m => m.toLowerCase() === String(id || '').toLowerCase()) || '';
+    const exactCur = exactId(cur), exactPrev = exactId(prevId);
     // v47.1: OpenCode requires provider/model. A bare id is rejected with "Invalid model reference".
     if (cur && !cur.includes('/')) addErr('The saved OpenCode model "' + cur + '" has no provider prefix. Set it to provider/model (for example opencode/big-pickle) in Settings → OpenCode CLI.');
     q.innerHTML = '';
@@ -892,17 +897,16 @@ async function fillOpenCodeQuick(force) {
       q.appendChild(g);
     };
     // A previously selected model that is gone is shown as unavailable (never silently swapped).
-    if (prevId && !models.includes(prevId)) {
+    if (prevId && !exactPrev) {
       const o = document.createElement('option'); o.value = 'opencode::' + prevId; o.textContent = prevId + ' (unavailable)'; o.disabled = true; q.appendChild(o);
     }
     addGroup('Free models', free);
     addGroup('Paid models', paid);
-    // Selection precedence: keep the user's current pick ALWAYS (even if it is no longer available —
-    // it is shown as unavailable and reported below, never silently replaced); otherwise the
-    // configured model; otherwise the first discovered model.
-    const want = prevId ? prevId : (models.includes(cur) ? cur : (models[0] || ''));
+    // Selection precedence: keep the user's current pick (a mis-cased id resolves to the exact
+    // discovered id); if it is truly gone it stays selected as unavailable and is reported below.
+    const want = prevId ? (exactPrev || prevId) : (exactCur || models[0] || '');
     q.value = 'opencode::' + want;
-    if (prevId && !models.includes(prevId)) addErr('The selected OpenCode model "' + prevId + '" is no longer available. The list was refreshed — choose a model to continue.');
+    if (prevId && !exactPrev) addErr('The selected OpenCode model "' + prevId + '" is no longer available. The list was refreshed — choose a model to continue.');
     if (typeof syncModelBtn === 'function') syncModelBtn();
   } catch (e) {
     addNote('OpenCode model list could not be loaded: ' + String(e && e.message || e) + (q.children.length ? ' Keeping the current selection.' : ''));

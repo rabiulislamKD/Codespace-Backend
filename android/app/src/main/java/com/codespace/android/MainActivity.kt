@@ -3296,8 +3296,24 @@ class MainActivity : Activity() {
         return JSONObject().put("providers", rows).put("model", auth.optString("model", ""))
     }
 
+    /* v47.2: OpenCode model ids are case-sensitive. Prefer the exact id from the last discovery
+       (so "Opencode/big-pickle" becomes "opencode/big-pickle" while "…/-Free" keeps its case);
+       otherwise at least lowercase the provider prefix before the first slash. */
+    private fun normalizeOpenCodeModelId(raw: String): String {
+        val m = raw.trim()
+        if (m.isEmpty()) return m
+        val ids = openCodeModelsCache?.second?.optJSONArray("models")
+        if (ids != null) {
+            for (i in 0 until ids.length()) {
+                val id = ids.optString(i, "")
+                if (id.equals(m, ignoreCase = true)) return id
+            }
+        }
+        val slash = m.indexOf('/')
+        return if (slash > 0) m.substring(0, slash).lowercase() + m.substring(slash) else m
+    }
+
     private fun openCodeAuthSet(body: JSONObject): JSONObject {
-        openCodeModelsCache = null // v46: keys/model changed → the discovered model list may differ
         val auth = openCodeAuthRead()
         if (body.has("model")) {
             val model = body.optString("model", "").trim()
@@ -3309,7 +3325,7 @@ class MainActivity : Activity() {
             require(model.isEmpty() || model.contains('/')) {
                 "OpenCode needs a provider prefix. Use provider/model, for example opencode/big-pickle."
             }
-            auth.put("model", model)
+            auth.put("model", normalizeOpenCodeModelId(model))
         }
         if (body.has("provider")) {
             val id = body.optString("provider", "").trim().lowercase()
@@ -3331,6 +3347,7 @@ class MainActivity : Activity() {
             }
             auth.put("keys", keys)
         }
+        openCodeModelsCache = null // v46: keys/model changed → the discovered model list may differ
         openCodeAuthFile.parentFile?.mkdirs()
         val text = auth.toString(2)
         val temp = File(openCodeAuthFile.parentFile, "auth.json.new")
@@ -3472,11 +3489,19 @@ class MainActivity : Activity() {
      */
     private fun openCodeModels(body: JSONObject = JSONObject()): JSONObject {
         val auth = openCodeAuthRead()
-        val configured = auth.optString("model", "").trim()
+        var configured = auth.optString("model", "").trim()
         val force = body.optBoolean("refresh", false)
         val cached = openCodeModelsCache
         if (!force && cached != null && System.currentTimeMillis() - cached.first < 5 * 60 * 1000L) {
             // Refresh the configured model from auth (it may have changed) without re-running the CLI.
+            // v47.2: a saved id that differs only by case is replaced with the exact discovered id.
+            val ids = cached.second.optJSONArray("models")
+            if (ids != null) for (i in 0 until ids.length()) {
+                val id = ids.optString(i, "")
+                if (id.equals(configured, ignoreCase = true) && id != configured) {
+                    configured = id; auth.put("model", id); saveOpenCodeAuth(auth); break
+                }
+            }
             return JSONObject(cached.second.toString()).put("configured", configured).put("cached", true)
         }
         var discovered = discoverOpenCodeModels(standalone = true)
@@ -3503,6 +3528,15 @@ class MainActivity : Activity() {
             return JSONObject().put("ok", false).put("error", err)
                 .put("models", org.json.JSONArray()).put("free", org.json.JSONArray()).put("paid", org.json.JSONArray())
                 .put("configured", configured).put("default", configured).put("source", "cli")
+        }
+        // v47.2: repair a previously saved mis-cased id (Opencode/big-pickle → opencode/big-pickle)
+        // without changing the user's choice: only an exact case-insensitive match is substituted.
+        val exact = ids.firstOrNull { it.equals(configured, ignoreCase = true) }
+        if (exact != null && exact != configured) {
+            configured = exact
+            auth.put("model", exact)
+            saveOpenCodeAuth(auth)
+            AndroidOpenCodeRuntime.logDiag(this, "models-discovery normalized saved model to exact id")
         }
         val models = org.json.JSONArray()
         val free = org.json.JSONArray()
