@@ -7483,23 +7483,34 @@ function humanDuration(ms) {
 /* v46: an actionable, non-JSON provider-error message. Preserves the exact provider error type and
    the retry delay. This is a provider quota/availability error — never reported as a missing model
    or an installation failure, and the selected model/configuration is preserved. */
+/* v47.1: a model-reference error is NOT a quota failure. Never rotate keys or show quota advice
+   for it, and never claim the configuration was fine when the CLI rejected the model id. */
+function isOpenCodeModelReferenceError(pe) {
+  if (!pe) return false;
+  const low = (String(pe.type || '') + ' ' + String(pe.message || '')).toLowerCase();
+  return /invalid model|model reference|\(unknown\)|unknown model|no such model|model .*(not found|unavailable|not available)|model is not available/.test(low);
+}
+
 function formatProviderError(pe) {
   if (!pe) return 'OpenCode CLI failed.';
   const type = String(pe.type || '').toLowerCase();
   const msg = String(pe.message || '').trim();
   const low = type + ' ' + msg.toLowerCase();
-  let head;
+  const quotaTail = 'Your selected model and configuration were kept. This is a provider quota/availability error, not a missing model or an installation problem.';
+  const modelTail = 'Your configuration was kept. Choose an available model from the OpenCode model list (provider/model, for example opencode/big-pickle) to continue. This is a model-selection problem, not a quota or installation problem.';
+  const authTail = 'Your selected model was kept. Check the API key for this provider in Settings → OpenCode CLI. This is a credential problem, not a quota or installation problem.';
+  let head, tail = quotaTail;
   if (/free[-_.]?limit|free[-_.]?usage/.test(type)) head = 'Free quota exhausted — this OpenCode provider account has reached its free usage limit.';
   else if (pe.status === 429 || /rate.?limit|too many requests/.test(low)) head = 'The OpenCode provider is rate-limiting requests (HTTP 429).';
-  else if (pe.status === 401 || pe.status === 403 || /unauthor|invalid api key|authentication/.test(low)) head = 'The OpenCode provider rejected the credentials for this model.';
+  else if (pe.status === 401 || pe.status === 403 || /unauthor|invalid api key|authentication/.test(low)) { head = 'The OpenCode provider rejected the credentials for this model.'; tail = authTail; }
   else if (/insufficient|credit|balance|billing|payment|402/.test(low)) head = 'The OpenCode provider account has insufficient credits or a billing restriction.';
-  else if (/not found|unavailable|no such model|unknown model/.test(low)) head = 'The selected OpenCode model is not available from its provider.';
-  else head = 'The OpenCode provider returned an error.';
+  else if (isOpenCodeModelReferenceError(pe) || /not found|unavailable|no such model/.test(low)) { head = 'The selected OpenCode model is not available from its provider.'; tail = modelTail; }
+  else { head = 'The OpenCode provider returned an error.'; tail = 'Your selected model and configuration were kept.'; }
   const parts = [head];
   if (msg && msg.toLowerCase() !== head.toLowerCase()) parts.push(msg);
   if (pe.type && !/^error$/.test(String(pe.type))) parts.push('(' + pe.type + (pe.status != null ? ' · HTTP ' + pe.status : '') + ')');
   if (pe.retryAfterMs) { const d = humanDuration(pe.retryAfterMs); if (d) parts.push('Try again in about ' + d + '.'); }
-  parts.push('Your selected model and configuration were kept. This is a provider quota/availability error, not a missing model or an installation problem.');
+  parts.push(tail);
   return parts.join(' ');
 }
 
@@ -7509,6 +7520,7 @@ function formatProviderError(pe) {
 function looksLikeQuotaFailure(r) {
   if (!r) return false;
   if (r.exitCode === 0 && !r.providerError) return false;
+  if (isOpenCodeModelReferenceError(r.providerError)) return false; // v47.1: never rotate keys for a bad model id
   const pe = r.providerError || {};
   const structured = String((pe.type || '') + ' ' + (pe.status != null ? pe.status : '') + ' ' + (pe.message || '') + ' ' + (pe.body || ''));
   const s = (structured + '\n' + String((r.stderr || '') + '\n' + (r.text || ''))).toLowerCase();
@@ -7945,6 +7957,8 @@ async function fillOpenCodeQuick(force) {
     const free = Array.isArray(cache.free) && cache.free.length ? cache.free.map(String) : models.filter(isFreeOpenCodeModel);
     const paid = Array.isArray(cache.paid) && cache.paid.length ? cache.paid.map(String) : models.filter(id => !isFreeOpenCodeModel(id));
     const cur = String(cache.configured || cache.default || '');
+    // v47.1: OpenCode requires provider/model. A bare id is rejected with "Invalid model reference".
+    if (cur && !cur.includes('/')) addErr('The saved OpenCode model "' + cur + '" has no provider prefix. Set it to provider/model (for example opencode/big-pickle) in Settings → OpenCode CLI.');
     q.innerHTML = '';
     const addGroup = (label, list) => {
       if (!list.length) return;

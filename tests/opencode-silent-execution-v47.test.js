@@ -298,6 +298,35 @@ test('v47 [7f]: the structured error reaches the chat UI and loading is cleared'
   assert.match(JS, /setBusy\(false\)/, 'the turn always clears the loading state');
 });
 
+/* ==================== [7g] invalid model reference (v47.1) ==================== */
+
+test('v47.1 [7g]: "Invalid model reference: big-pickle (unknown)" is a model error, never quota', async () => {
+  const payload = line({ type: 'error', error: { type: 'error', message: 'Invalid model reference: big-pickle (unknown)' } });
+  const h = androidComposer({ runReply: runReply('ses_badmodel'), runReadQueue: errorQueue(payload, 1) });
+  ready(h);
+  const res = await h.api.runOpenCodeAndroidLocalOnce('hi', { openCodeSessionId: '', title: 't' });
+  assert.equal(res.state, 'FAILED');
+  assert.equal(res.providerError.message, 'Invalid model reference: big-pickle (unknown)');
+  const msg = h.api.formatProviderError(res.providerError);
+  assert.match(msg, /model is not available from its provider/i);
+  assert.match(msg, /provider\/model, for example opencode\/big-pickle/i);
+  assert.doesNotMatch(msg, /provider quota\/availability error/i, 'never mislabel a bad model as quota');
+  assert.doesNotMatch(msg, /not a missing model/i, 'never deny the actual problem');
+  assert.equal(h.api.looksLikeQuotaFailure(res), false, 'no key rotation for a model error');
+  await h.api.runOpenCodeAndroidLocal('hi', { openCodeSessionId: '', title: 't' });
+  assert.ok(!h.harness.nativeCalls.includes('/opencode/keys/rotate'), 'no credentials are rotated');
+});
+
+test('v47.1 [7h]: the CLI requires a provider-prefixed id and discovery retries without --standalone', () => {
+  assert.match(MA, /model\.contains\('\/'\)/, 'bare model names are rejected on save');
+  assert.match(MA, /provider\/model, for example opencode\/big-pickle/, 'the validation message is actionable');
+  assert.match(MA, /discoverOpenCodeModels\(standalone = true\)/, 'discovery tries --standalone first');
+  assert.match(MA, /discoverOpenCodeModels\(standalone = false\)/, 'discovery falls back to the plain command');
+  assert.match(MA, /parseOpenCodeModelIds/, 'CLI output is parsed into provider/model ids');
+  assert.match(MA, /no provider\/model entries/, 'an unparseable list gets a specific diagnosis');
+  assert.match(JS, /isOpenCodeModelReferenceError/, 'the model-error guard exists in the formatter');
+});
+
 /* ==================== [8] cancellation of a child process ==================== */
 
 test('v47 [8]: cancellation kills the shell AND the CLI child, verified before success', () => {

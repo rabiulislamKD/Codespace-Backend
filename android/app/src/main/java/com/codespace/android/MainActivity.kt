@@ -3304,6 +3304,11 @@ class MainActivity : Activity() {
             require(model.isEmpty() || model.matches(Regex("^[A-Za-z0-9._\\-/:+]{1,120}$"))) {
                 "The model name has characters OpenCode does not accept. Use provider/model, for example opencode/big-pickle."
             }
+            // v47.1: a bare name is accepted by the character check but rejected by the CLI with
+            // "Invalid model reference: <name> (unknown)". Require the provider prefix up front.
+            require(model.isEmpty() || model.contains('/')) {
+                "OpenCode needs a provider prefix. Use provider/model, for example opencode/big-pickle."
+            }
             auth.put("model", model)
         }
         if (body.has("provider")) {
@@ -3474,17 +3479,27 @@ class MainActivity : Activity() {
             // Refresh the configured model from auth (it may have changed) without re-running the CLI.
             return JSONObject(cached.second.toString()).put("configured", configured).put("cached", true)
         }
-        val discovered = discoverOpenCodeModels()
+        var discovered = discoverOpenCodeModels(standalone = true)
+        var ids = parseOpenCodeModelIds(discovered.optString("stdout", ""))
+        if (ids.isEmpty()) {
+            // v47.1: some installed CLI versions reject --standalone or only emit the list on the
+            // plain command. Retry once without it instead of reporting "did not return a model list".
+            val fallback = discoverOpenCodeModels(standalone = false)
+            val fallbackIds = parseOpenCodeModelIds(fallback.optString("stdout", ""))
+            if (fallbackIds.isNotEmpty() || (fallback.optBoolean("ok") && !discovered.optBoolean("ok"))) {
+                discovered = fallback
+                ids = fallbackIds
+            }
+        }
         val stdout = discovered.optString("stdout", "")
-        val ids = stdout.split('\n')
-            .map { it.trim() }
-            .filter { it.length in 3..200 && it.contains('/') && it.matches(Regex("^[A-Za-z0-9._\\-/:+]+$")) }
-            .distinct()
         if (!discovered.optBoolean("ok", false) || ids.isEmpty()) {
-            val err = discovered.optString("stderr", "").ifBlank { discovered.optString("error", "") }
-                .ifBlank { "OpenCode CLI did not return a model list." }
-                .replace(Regex("\\s+"), " ").take(240)
-            AndroidOpenCodeRuntime.logDiag(this, "models-discovery failed state=${discovered.optString("state")} exit=${discovered.optInt("exitCode")} stdoutLines=${stdout.split('\n').size}")
+            val stderr = discovered.optString("stderr", "")
+            val err = when {
+                stdout.isBlank() && stderr.isBlank() -> "OpenCode CLI did not return a model list (the command produced no output). Check the CLI in Settings → OpenCode CLI."
+                stdout.isNotBlank() && ids.isEmpty() -> "OpenCode CLI returned output but no provider/model entries. Check the CLI version and provider sign-in in Settings → OpenCode CLI."
+                else -> stderr.ifBlank { discovered.optString("error", "") }.ifBlank { "OpenCode CLI did not return a model list." }
+            }.replace(Regex("\\s+"), " ").take(240)
+            AndroidOpenCodeRuntime.logDiag(this, "models-discovery failed state=${discovered.optString("state")} exit=${discovered.optInt("exitCode")} stdoutLines=${stdout.split('\n').size} stderrLines=${stderr.split('\n').size} parsed=${ids.size}")
             return JSONObject().put("ok", false).put("error", err)
                 .put("models", org.json.JSONArray()).put("free", org.json.JSONArray()).put("paid", org.json.JSONArray())
                 .put("configured", configured).put("default", configured).put("source", "cli")
@@ -3506,15 +3521,24 @@ class MainActivity : Activity() {
         return result
     }
 
+    /** One `provider/model` id per non-empty CLI output line; anything else is ignored. */
+    private fun parseOpenCodeModelIds(stdout: String): List<String> = stdout.split('\n')
+        .map { it.trim() }
+        .filter { it.length in 3..200 && it.contains('/') && it.matches(Regex("^[A-Za-z0-9._\\-/:+]+$")) }
+        .distinct()
+
     /** Run the real `opencode models` through Termux with the saved provider keys applied. */
-    private fun discoverOpenCodeModels(): JSONObject {
+    private fun discoverOpenCodeModels(standalone: Boolean = true): JSONObject {
         val auth = openCodeAuthRead()
         val keys = openCodeAuthKeys(auth)
         val cfg = writeOpenCodeConfig(keys, auth.optString("model", ""), "off")
         // v47: --standalone starts a private server for this one command. The managed background
         // service is not reliable from a one-shot Termux shell and was the source of zero-byte
         // stdout/stderr runs. Verified with the installed v2.0.32-android-termux.1 binary.
-        val cmd = "env OPENCODE_CONFIG=${shQuote(cfg.absolutePath)} '${AndroidOpenCodeRuntime.TERMUX_OPCODE_PATH}' models --standalone"
+        // v47.1: openCodeModels() retries without it for CLI versions that do not support the flag.
+        val cfgArg = shQuote(cfg.absolutePath)
+        val bin = AndroidOpenCodeRuntime.TERMUX_OPCODE_PATH
+        val cmd = if (standalone) "env OPENCODE_CONFIG=$cfgArg '$bin' models --standalone" else "env OPENCODE_CONFIG=$cfgArg '$bin' models"
         return AndroidOpenCodeRuntime.execCapture(this, cmd, 60_000)
     }
 
