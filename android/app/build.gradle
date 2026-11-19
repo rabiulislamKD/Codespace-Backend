@@ -1,0 +1,257 @@
+import java.security.MessageDigest
+import java.util.zip.ZipFile
+
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.chaquo.python'
+}
+
+
+android {
+    buildFeatures { buildConfig true }
+    namespace 'com.codespace.android'
+    compileSdk 35
+    ndkVersion '27.2.12479018'
+    defaultConfig {
+        applicationId 'com.codespace.android'
+        minSdk 26
+        targetSdk 35
+        versionCode 31850
+        versionName '3.19.1-android-v47'
+        buildConfigField 'String', 'NODE_RUNTIME_VERSION', '"24.22.1"'
+        buildConfigField 'boolean', 'NODE_RUNTIME_INCLUDED', 'true'
+        // On-device builds: the SDK CMake/Ninja/NDK host tools are x86_64 and
+        // cannot run here, so the three JNI bridges are cross-compiled with the
+        // device clang into src/main/jniLibs/arm64-v8a instead of via CMake.
+        ndk { abiFilters 'arm64-v8a' }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs += [layout.buildDirectory.dir('generated/node-mobile/jni').get().asFile]
+        }
+    }
+
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+    }
+
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+
+chaquopy {
+    defaultConfig {
+        // Python 3.13 is supported on current 64-bit Android ABIs.
+        version = '3.13'
+        // Keep source files as source so local AndroidIDE builds do not need a
+        // separate host Python interpreter just to precompile bytecode.
+        pyc { src = false }
+    }
+}
+
+dependencies {
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+    implementation 'org.eclipse.jgit:org.eclipse.jgit:6.10.0.202406032230-r'
+}
+
+
+// Node.js Mobile 24.22.1-0 (full ICU + Inspector) is pinned to a reviewed
+// GitHub release asset and verified by SHA-256 before any native binary is used.
+// The binary is fetched at build time rather than checked into this source ZIP.
+def nodeMobileVersion = '24.22.1-0'
+def nodeMobileArchiveSha256 = 'd6fd9f610fe5d81fede8f0d400c5a62723247725a19831835f15abf4f0604250'
+def nodeMobileAssetUrl = "https://github.com/fogtape/nodejs-mobile/releases/download/v${nodeMobileVersion}/nodejs-mobile-android-${nodeMobileVersion}.zip"
+def nodeMobileRoot = layout.buildDirectory.dir('generated/node-mobile').get().asFile
+
+// Bundle the existing CodeSpace xterm terminal UI assets for native Android Local mode.
+// Both npm tarballs are pinned by their registry SHA-512 integrity values; the app
+// never downloads JavaScript from a CDN at runtime.
+def terminalAssetsRoot = layout.buildDirectory.dir('generated/terminal-assets').get().asFile
+android.sourceSets.main.assets.srcDirs += [terminalAssetsRoot]
+def terminalPackages = [
+    [name: 'xterm', version: '5.5.0', file: 'xterm-5.5.0.tgz',
+     url: 'https://registry.npmjs.org/@xterm/xterm/-/xterm-5.5.0.tgz',
+     integrity: 'hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=='],
+    [name: 'addon-fit', version: '0.10.0', file: 'addon-fit-0.10.0.tgz',
+     url: 'https://registry.npmjs.org/@xterm/addon-fit/-/addon-fit-0.10.0.tgz',
+     integrity: 'UFYkDm4HUahf2lnEyHvio51TNGiLK66mqP2JoATy7hRZeXaGMRDr00JiSF7m63vR5WKATF605yEggJKsw0JpMQ==']
+]
+def nodeMobileZip = layout.buildDirectory.file("downloads/nodejs-mobile-android-${nodeMobileVersion}.zip").get().asFile
+
+tasks.register('prepareTerminalAssets') {
+    inputs.property('pinnedTerminalPackages', terminalPackages.collect { [it.name, it.version, it.integrity] }.toString())
+    outputs.file(new File(terminalAssetsRoot, 'codespace-web/vendor/xterm.js'))
+    outputs.file(new File(terminalAssetsRoot, 'codespace-web/vendor/xterm.css'))
+    outputs.file(new File(terminalAssetsRoot, 'codespace-web/vendor/addon-fit.js'))
+    doLast {
+        def verifyIntegrity = { File file, String expected ->
+            def digest = MessageDigest.getInstance('SHA-512')
+            file.withInputStream { input ->
+                byte[] buffer = new byte[256 * 1024]
+                int n
+                while ((n = input.read(buffer)) > 0) digest.update(buffer, 0, n)
+            }
+            return Base64.encoder.encodeToString(digest.digest()) == expected
+        }
+        def downloads = layout.buildDirectory.dir('downloads/terminal').get().asFile
+        def staging = layout.buildDirectory.dir('tmp/terminal-assets').get().asFile
+        downloads.mkdirs()
+        if (staging.exists()) staging.deleteDir()
+        staging.mkdirs()
+        terminalPackages.each { pkg ->
+            File archive = new File(downloads, pkg.file)
+            if (!archive.isFile() || !verifyIntegrity(archive, pkg.integrity)) {
+                File partial = new File(downloads, pkg.file + '.part')
+                partial.delete()
+                logger.lifecycle("Downloading verified @xterm/${pkg.name}@${pkg.version}…")
+                def connection = new URL(pkg.url).openConnection()
+                connection.connectTimeout = 20000
+                connection.readTimeout = 120000
+                connection.setRequestProperty('User-Agent', 'CodeSpace-Android-Build/3.18.4')
+                connection.inputStream.withCloseable { input ->
+                    partial.withOutputStream { output ->
+                        byte[] buffer = new byte[256 * 1024]
+                        int n
+                        while ((n = input.read(buffer)) > 0) output.write(buffer, 0, n)
+                    }
+                }
+                if (!verifyIntegrity(partial, pkg.integrity)) {
+                    partial.delete()
+                    throw new GradleException("@xterm/${pkg.name}@${pkg.version} SHA-512 integrity verification failed")
+                }
+                if (archive.exists()) archive.delete()
+                if (!partial.renameTo(archive)) throw new GradleException("Could not finalize @xterm/${pkg.name} archive")
+            }
+            if (!verifyIntegrity(archive, pkg.integrity)) throw new GradleException("Cached @xterm/${pkg.name} archive integrity mismatch")
+            def extracted = new File(staging, pkg.name)
+            extracted.mkdirs()
+            ant.untar(src: archive, dest: extracted, compression: 'gzip')
+        }
+        def xtermPkg = new File(staging, 'xterm/package')
+        def fitPkg = new File(staging, 'addon-fit/package')
+        def files = [
+            'codespace-web/vendor/xterm.js': new File(xtermPkg, 'lib/xterm.js'),
+            'codespace-web/vendor/xterm.css': new File(xtermPkg, 'css/xterm.css'),
+            'codespace-web/vendor/addon-fit.js': new File(fitPkg, 'lib/addon-fit.js')
+        ]
+        files.each { relative, source ->
+            if (!source.isFile()) throw new GradleException("Pinned xterm package is missing ${source}")
+            File target = new File(terminalAssetsRoot, relative)
+            target.parentFile.mkdirs()
+            java.nio.file.Files.copy(source.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+        File licenses = new File(terminalAssetsRoot, 'THIRD-PARTY-XTERM-LICENSES.txt')
+        licenses.parentFile.mkdirs()
+        licenses.text = "@xterm/xterm 5.5.0\n" + new File(xtermPkg, 'LICENSE').getText('UTF-8') +
+            "\n\n@xterm/addon-fit 0.10.0\n" + new File(fitPkg, 'LICENSE').getText('UTF-8')
+        logger.lifecycle('Prepared offline-bundled xterm terminal UI assets (integrity verified).')
+    }
+}
+
+tasks.register('prepareNodeMobileRuntime') {
+    outputs.upToDateWhen {
+        new File(nodeMobileRoot, 'jni/arm64-v8a/libnode.so').isFile() &&
+        new File(nodeMobileRoot, 'jni/x86_64/libnode.so').isFile() &&
+        new File(nodeMobileRoot, 'include/node/node.h').isFile() &&
+        new File(nodeMobileRoot, '.verified').isFile() &&
+        new File(nodeMobileRoot, '.verified').text.trim() == nodeMobileArchiveSha256
+    }
+    outputs.file(new File(nodeMobileRoot, 'jni/arm64-v8a/libnode.so'))
+    outputs.file(new File(nodeMobileRoot, 'jni/x86_64/libnode.so'))
+    outputs.file(new File(nodeMobileRoot, 'include/node/node.h'))
+    doLast {
+        def sha256 = { File file ->
+            def md = MessageDigest.getInstance('SHA-256')
+            file.withInputStream { input ->
+                byte[] buffer = new byte[1024 * 1024]
+                int n
+                while ((n = input.read(buffer)) > 0) md.update(buffer, 0, n)
+            }
+            md.digest().collect { String.format('%02x', it & 0xff) }.join()
+        }
+        def arm64 = new File(nodeMobileRoot, 'jni/arm64-v8a/libnode.so')
+        def x64 = new File(nodeMobileRoot, 'jni/x86_64/libnode.so')
+        def header = new File(nodeMobileRoot, 'include/node/node.h')
+        if (arm64.isFile() && x64.isFile() && header.isFile() && new File(nodeMobileRoot, '.verified').text.trim() == nodeMobileArchiveSha256) {
+            logger.lifecycle("Verified Node.js Mobile ${nodeMobileVersion} runtime already prepared")
+            return
+        }
+        nodeMobileZip.parentFile.mkdirs()
+        if (!nodeMobileZip.isFile() || sha256(nodeMobileZip) != nodeMobileArchiveSha256) {
+            def tmp = new File(nodeMobileZip.parentFile, nodeMobileZip.name + '.part')
+            tmp.delete()
+            logger.lifecycle("Downloading pinned Node.js Mobile ${nodeMobileVersion} (about 113 MB)…")
+            def connection = new URL(nodeMobileAssetUrl).openConnection()
+            connection.connectTimeout = 20000
+            connection.readTimeout = 120000
+            connection.setRequestProperty('User-Agent', 'CodeSpace-Android-Build/3.18.4')
+            connection.setRequestProperty('Accept', 'application/octet-stream')
+            connection.inputStream.withCloseable { input ->
+                tmp.withOutputStream { output ->
+                    byte[] buffer = new byte[1024 * 1024]
+                    int n
+                    while ((n = input.read(buffer)) > 0) output.write(buffer, 0, n)
+                }
+            }
+            if (sha256(tmp) != nodeMobileArchiveSha256) {
+                tmp.delete()
+                throw new GradleException('Node.js Mobile archive SHA-256 verification failed; runtime was not installed.')
+            }
+            if (nodeMobileZip.exists()) nodeMobileZip.delete()
+            if (!tmp.renameTo(nodeMobileZip)) throw new GradleException('Could not finalize verified Node.js runtime download.')
+        }
+        if (sha256(nodeMobileZip) != nodeMobileArchiveSha256) throw new GradleException('Pinned Node.js archive hash mismatch.')
+
+        def staging = new File(nodeMobileRoot.parentFile, 'node-mobile-staging')
+        if (staging.exists()) staging.deleteDir()
+        staging.mkdirs()
+        def wanted = [
+            'bin/arm64-v8a/libnode.so': new File(staging, 'jni/arm64-v8a/libnode.so'),
+            'bin/x86_64/libnode.so': new File(staging, 'jni/x86_64/libnode.so')
+        ]
+        long extractedBytes = 0
+        new ZipFile(nodeMobileZip).withCloseable { zip ->
+            def entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                def entry = entries.nextElement()
+                def name = entry.name.replace('\\\\', '/')
+                if (entry.directory || name.startsWith('/') || name.split('/').any { it == '..' }) continue
+                File target = wanted[name]
+                if (target == null && name.startsWith('include/node/')) target = new File(staging, name)
+                if (target == null) continue
+                target = target.canonicalFile
+                if (!target.path.startsWith(staging.canonicalPath + File.separator)) throw new GradleException("Unsafe Node runtime archive path: ${name}")
+                target.parentFile.mkdirs()
+                zip.getInputStream(entry).withCloseable { input ->
+                    target.withOutputStream { output ->
+                        byte[] buffer = new byte[256 * 1024]
+                        int n
+                        while ((n = input.read(buffer)) > 0) {
+                            extractedBytes += n
+                            if (extractedBytes > 350L * 1024L * 1024L) throw new GradleException('Node runtime expanded beyond the 350 MB safety limit.')
+                            output.write(buffer, 0, n)
+                        }
+                    }
+                }
+            }
+        }
+        for (String required : ['jni/arm64-v8a/libnode.so', 'jni/x86_64/libnode.so', 'include/node/node.h', 'include/node/node_version.h']) {
+            if (!new File(staging, required).isFile()) throw new GradleException("Pinned Node archive is missing required file: ${required}")
+        }
+        new File(staging, '.verified').text = nodeMobileArchiveSha256 + '\n'
+        if (nodeMobileRoot.exists()) nodeMobileRoot.deleteDir()
+        if (!staging.renameTo(nodeMobileRoot)) throw new GradleException('Could not install the extracted Node runtime into the Gradle build directory.')
+        logger.lifecycle("Prepared verified Node.js Mobile ${nodeMobileVersion}: ARM64 + x86_64, full ICU and Inspector")
+    }
+}
+
+tasks.named('preBuild').configure { dependsOn('prepareNodeMobileRuntime', 'prepareTerminalAssets') }
+tasks.configureEach { task ->
+    if (task.name.startsWith('merge') && task.name.contains('JniLibFolders')) {
+        task.dependsOn('prepareNodeMobileRuntime')
+    }
+    if (task.name.startsWith('merge') && task.name.endsWith('Assets')) task.dependsOn('prepareTerminalAssets')
+}

@@ -64,16 +64,20 @@ function buildAndroidCommand({ workDir, configPath, binaryPath, model = '', sess
   return fn(shQuote, workDir, { absolutePath: configPath }, { TERMUX_OPCODE_PATH: binaryPath }, model, sessionId, { optBoolean: () => auto }, prompt);
 }
 
-/* Run the exact Termux wrapper the app uses. Mirrors AndroidOpenCodeRuntime.startRun v44: the
- * shell starts in Termux home, writes a start marker with its PID, `cd`s into the workspace
- * (reporting exit 78 when it cannot), redirects the command output, and ALWAYS writes the exit
- * code — so a failed launch can never leave the task polling forever. */
+/* Run the exact Termux wrapper the app uses. Mirrors AndroidOpenCodeRuntime.startRun v47: the
+ * shell `cd`s into the workspace (exit 78 on failure), launches the CLI as a tracked background
+ * child (`exec`, so $! is the real CLI PID), writes both PIDs atomically, waits for the child and
+ * ALWAYS records its real exit code. */
 function runInTermux(command, { base, workDir, env = {} }) {
   const start = path.join(base, 'start');
+  const startTmp = path.join(base, 'start.tmp');
   const out = path.join(base, 'stdout');
   const err = path.join(base, 'stderr');
   const exit = path.join(base, 'exit');
-  const wrapped = "echo $$ > '" + start + "'; ( cd " + shQuote(workDir) + " || { echo CODESPACE_WORKSPACE_UNREACHABLE >&2; exit 78; } ; " + command + " ) > '" + out + "' 2> '" + err + "'; echo $? > '" + exit + "'";
+  const wrapped = "( cd " + shQuote(workDir) + " || { echo CODESPACE_WORKSPACE_UNREACHABLE >&2; exit 78; } ; exec " + command +
+    " ) > '" + out + "' 2> '" + err + "' & cli=$!; " +
+    "printf '%s\\n%s\\n' \"$$\" \"$cli\" > '" + startTmp + "' && mv -f '" + startTmp + "' '" + start + "'; " +
+    "wait \"$cli\"; printf '%s' \"$?\" > '" + exit + "'";
   execFileSync('bash', ['-lc', wrapped], { cwd: base, env: { ...process.env, ...env } });
   return {
     exit: fs.readFileSync(exit, 'utf8').trim(),
@@ -168,7 +172,8 @@ test('v43.1: model, session and prompt arguments are preserved for Android execu
     const res = runInTermux(cmd, { base: e.base, workDir: e.ws, env: { OC_TEST_OUT: e.outFile } });
     assert.equal(res.exit, '0');
     const { argv } = parseFake(fs.readFileSync(e.outFile, 'utf8'));
-    assert.deepEqual(argv, ['run', '--format', 'json', '--model', 'anthropic/claude#high', '--session', 'ses_abc123', '--auto', '--', 'fix the bug']);
+    // v47: --standalone uses a private server instead of the managed background service.
+    assert.deepEqual(argv, ['run', '--standalone', '--format', 'json', '--model', 'anthropic/claude#high', '--session', 'ses_abc123', '--auto', '--', 'fix the bug']);
   } finally { e.cleanup(); }
 });
 
@@ -178,7 +183,7 @@ test('v43.1: empty model, session and auto flags are omitted', () => {
     const cmd = buildAndroidCommand({ workDir: e.ws, configPath: e.cfg, binaryPath: e.bin, prompt: 'hi' });
     runInTermux(cmd, { base: e.base, workDir: e.ws, env: { OC_TEST_OUT: e.outFile } });
     const { argv } = parseFake(fs.readFileSync(e.outFile, 'utf8'));
-    assert.deepEqual(argv, ['run', '--format', 'json', '--', 'hi']);
+    assert.deepEqual(argv, ['run', '--standalone', '--format', 'json', '--', 'hi']);
   } finally { e.cleanup(); }
 });
 

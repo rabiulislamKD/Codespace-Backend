@@ -65,15 +65,27 @@ function buildAndroidCommand({ workDir, configPath, binaryPath, model = '', sess
   return fn(shQuote, workDir, { absolutePath: configPath }, { TERMUX_OPCODE_PATH: binaryPath }, model, sessionId, { optBoolean: () => auto }, prompt);
 }
 
-/* ---------- Run the command through the REAL v44 runtime wrapper shape ----------
- * Mirrors AndroidOpenCodeRuntime.startRun: shell starts in Termux home, writes a PID start marker,
- * `cd`s into the workspace (exit 78 if it cannot), redirects output, and ALWAYS writes the exit. */
+/* ---------- Run the command through the REAL v47 runtime wrapper shape ----------
+ * Mirrors AndroidOpenCodeRuntime.startRun: shell starts in Termux home, `cd`s into the workspace,
+ * launches the CLI as a TRACKED BACKGROUND CHILD (`exec`, so $! is the real CLI PID), writes both
+ * PIDs atomically to the start marker, `wait`s for the child and ALWAYS writes the real exit code. */
 function runtimeWrapper({ base, workDir, command }) {
   const start = path.join(base, 'start');
+  const startTmp = path.join(base, 'start.tmp');
   const out = path.join(base, 'stdout');
   const err = path.join(base, 'stderr');
   const exit = path.join(base, 'exit');
-  return "echo $$ > '" + start + "'; ( cd " + shQuote(workDir) + " || { echo CODESPACE_WORKSPACE_UNREACHABLE >&2; exit 78; } ; " + command + " ) > '" + out + "' 2> '" + err + "'; echo $? > '" + exit + "'";
+  return "( cd " + shQuote(workDir) + " || { echo CODESPACE_WORKSPACE_UNREACHABLE >&2; exit 78; } ; exec " + command +
+    " ) > '" + out + "' 2> '" + err + "' & cli=$!; " +
+    "printf '%s\\n%s\\n' \"$$\" \"$cli\" > '" + startTmp + "' && mv -f '" + startTmp + "' '" + start + "'; " +
+    "wait \"$cli\"; printf '%s' \"$?\" > '" + exit + "'";
+}
+function assertPidMarker(r, label) {
+  const lines = r.start.trim().split(/\r?\n/);
+  assert.equal(lines.length, 2, label + ': the marker must hold both the shell PID and the CLI child PID');
+  assert.match(lines[0], /^\d+$/, label + ': launcher shell PID');
+  assert.match(lines[1], /^\d+$/, label + ': OpenCode CLI child PID');
+  assert.notEqual(lines[0], lines[1], label + ': shell PID and CLI PID must be distinct');
 }
 function runWrapped(command, { base, workDir, env = {} }) {
   execFileSync('bash', ['-lc', runtimeWrapper({ base, workDir, command })], { cwd: base, env: { ...process.env, ...env } });
@@ -120,7 +132,7 @@ test('v44 [1]: a run writes a PID start marker and always writes an exit code', 
   try {
     const cmd = buildAndroidCommand({ workDir: e.ws, configPath: e.cfg, binaryPath: e.bin, prompt: 'hi' });
     const r = runWrapped(cmd, { base: e.base, workDir: e.ws });
-    assert.match(r.start.trim(), /^\d+$/, 'the shell must write its PID as the launch confirmation');
+    assertPidMarker(r, 'launch');
     assert.equal(r.exit, '0', 'the exit file must always be written');
     assert.match(r.stdout, /ok/);
   } finally { e.cleanup(); }
@@ -156,7 +168,7 @@ test('v44 [4]: a non-zero exit code is recorded verbatim', () => {
     const cmd = buildAndroidCommand({ workDir: e.ws, configPath: e.cfg, binaryPath: e.bin, prompt: 'hi' });
     const r = runWrapped(cmd, { base: e.base, workDir: e.ws });
     assert.equal(r.exit, '3');
-    assert.match(r.start.trim(), /^\d+$/, 'the process still started');
+    assertPidMarker(r, 'nonzero-exit');
   } finally { e.cleanup(); }
 });
 

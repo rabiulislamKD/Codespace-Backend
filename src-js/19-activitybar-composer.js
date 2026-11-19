@@ -296,6 +296,9 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
     // v46: {"type":"error",...} / {"part":{"type":"error"}} / any event carrying an `error` object.
     // Captured separately; never appended to plain/assistant text.
     if (typ === 'error' || ptyp === 'error' || (ev.error && typeof ev.error === 'object')) {
+      // v47: the FIRST structured error is the ORIGINAL provider failure. A subsequent wrapper
+      // error or the exit-130 produced by cancelling the process must never replace it.
+      if (providerError) return;
       providerError = normalizeProviderError(ev, part);
       ocExecLog('provider-error-event', { reqId, session, type: providerError.type, status: providerError.status, retryAfterMs: providerError.retryAfterMs });
       return;
@@ -370,7 +373,7 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
       let finalText = lastMid ? [...messageParts.get(lastMid).values()].join('') : '';
       if (!finalText.trim() && plain.trim()) finalText = plain.trim();
       ocExecLog('provider-error-return', { reqId, session, code, state: 'FAILED' });
-      return { exitCode: code, sessionId: session, text: finalText, stderr: String(snap.stderr || ''), timedOut: false, state: 'FAILED', providerError };
+      return { exitCode: code, sessionId: session, text: finalText, stderr: String(snap.stderr || ''), timedOut: false, state: 'FAILED', providerError, diagnosis: String(snap.diagnosis || '') };
     }
     if (snap && snap.exited) {
       if (carried.trim()) onLine(carried);
@@ -382,7 +385,7 @@ async function runOpenCodeAndroidLocalOnce(text, sess) {
       const stderr = String(snap.stderr || '');
       if (stderr.trim()) ocExecLog('stderr', { reqId, session, bytes: stderr.length, preview: stderr.replace(/\s+/g, ' ').slice(0, 300) });
       ocExecLog('completed', { reqId, session, code, state: snap.state || state, textLen: finalText.length });
-      return { exitCode: code, sessionId: session, text: finalText, stderr, timedOut: (snap.state === 'TIMED_OUT'), state: snap.state || state, providerError: providerError || null };
+      return { exitCode: code, sessionId: session, text: finalText, stderr, timedOut: (snap.state === 'TIMED_OUT'), state: snap.state || state, providerError: providerError || null, diagnosis: String(snap.diagnosis || '') };
     }
     await new Promise(r => setTimeout(r, 350));
   }
@@ -411,7 +414,7 @@ function formatProviderError(pe) {
   const msg = String(pe.message || '').trim();
   const low = type + ' ' + msg.toLowerCase();
   let head;
-  if (/free[-_.]?limit|free[-_.]?usage/.test(type)) head = 'This OpenCode provider account has reached its free usage limit.';
+  if (/free[-_.]?limit|free[-_.]?usage/.test(type)) head = 'Free quota exhausted — this OpenCode provider account has reached its free usage limit.';
   else if (pe.status === 429 || /rate.?limit|too many requests/.test(low)) head = 'The OpenCode provider is rate-limiting requests (HTTP 429).';
   else if (pe.status === 401 || pe.status === 403 || /unauthor|invalid api key|authentication/.test(low)) head = 'The OpenCode provider rejected the credentials for this model.';
   else if (/insufficient|credit|balance|billing|payment|402/.test(low)) head = 'The OpenCode provider account has insufficient credits or a billing restriction.';
@@ -597,7 +600,9 @@ async function runOpenCodeChat(text, userDisplayText = text, privateContext = ''
       else if (result.exitCode === 130) detail = 'Stopped by you. ' + raw;
       else if (result.exitCode === 70) detail = 'The OpenCode CLI process never started. ' + raw;
       else if (result.exitCode === 78) detail = 'Termux could not enter the selected workspace folder. ' + raw;
+      else if (result.exitCode === 125) detail = 'The OpenCode CLI was stopped after a real process probe found it genuinely stuck. ' + raw;
       else detail = raw || ('Process exited with code ' + result.exitCode);
+      if (result.diagnosis) detail += ' ' + result.diagnosis;
       ocExecLog('turn-failed', { code: result.exitCode, state: st, detail: detail.slice(0, 300) });
       addErr('OpenCode CLI failed. ' + detail.slice(0, 1800));
     } else if (String(result.text || '').trim()) {

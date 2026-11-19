@@ -22,8 +22,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function enterOpenCode(opts = {}) {
   const h = buildComposer({ statusMode: 'OK', nativeHasLocalWorkspace: true, ...opts });
   h.api.setStatus({ termuxState: 'OK', installed: true, runtimeKind: 'TERMUX', version: '2.3.0' });
-  h.openMenu(); await sleep(40);
-  h.tapOpenCode(); await sleep(80);
+  // Generous waits: node:test runs test files in parallel, so fixed short sleeps can race the
+  // asynchronous native status/models round-trips under load and make this suite flaky.
+  h.openMenu(); await sleep(120);
+  h.tapOpenCode(); await sleep(200);
   return h;
 }
 
