@@ -220,3 +220,18 @@ html[data-theme="dark"]{
   #composer .crow-bot{padding-right:44px}
   #composer .cbox>.sendSlot .sbtn{width:32px;height:32px}
 }
+
+/* v47.3: touch/IME safety. With Android adjustResize the WebView shrinks when the soft keyboard
+   opens; keep the app inside the visible viewport and let the transcript scroll instead of being
+   clipped behind the keyboard. */
+@media (pointer: coarse){
+  #app{height:100dvh}
+  #chatPane{min-height:0;max-height:62dvh}
+  #chat{overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+}
+
+/* v47.3: the JS toggles html.browser-fs for the maximize button, but no CSS implemented it.
+   Make the browser dock actually occupy the workspace so the native WebView bounds follow it. */
+html.browser-fs #bp{position:fixed;left:0;right:0;top:0;bottom:0;z-index:90000;padding:0;gap:0;background:var(--bg)}
+html.browser-fs #bview{border:0;border-radius:0;min-height:0}
+html.browser-fs #bview .chrome-ui{border-radius:0}

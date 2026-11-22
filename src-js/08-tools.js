@@ -265,8 +265,13 @@ function toolDefs() {
     if (B.info.node && B.info.node.available && B.info.node.inspectorCdpBridgeAvailable) t.push(...NODE_DEBUG_TOOLS);
     if (S.multiAgent) t.push(DELEGATE_TOOL);
     const group = (g, exists, tools) => { if (!exists) return; if (wantGroup(g)) t.push(...tools); else hidden.push(g); };
-    group('browser', B.info.browser, BROWSER_TOOLS);
-    group('browser', B.info.browser, BROWSER_TOOLS_310);
+    // v47.3: a remote /info often reports browser:false because it has no Chrome, while the
+    // Android device still has its own integrated WebView browser. Advertise browser tools from
+    // the device capability too, otherwise the AI cannot see them in sandbox modes.
+    const browserCapable = !!(B.info.browser ||
+      (typeof csDeviceBrowserActive === 'function' && csDeviceBrowserActive()));
+    group('browser', browserCapable, BROWSER_TOOLS);
+    group('browser', browserCapable, BROWSER_TOOLS_310);
     group('github', B.conn.github && B.conn.github.connected, [GH_TOOL]);
     group('vercel', B.conn.vercel && B.conn.vercel.connected, [VC_TOOL]);
     group('database', B.conn.mysql && B.conn.mysql.connected, [DB_TOOL]);
@@ -332,9 +337,9 @@ function buildSystem() {
          model never claims a shell command ran on the Android filesystem when it did not. */
       if (i.platform === 'android' && i.fileProvider === 'android-native-bridge') {
         s += '\n\nFILESYSTEM LOCATION: This workspace (' + i.workspaceKind + ', id ' + (i.workspaceId || 'n/a') + ') lives on the USER\'S ANDROID DEVICE. read_file, write_file, search_files, list_files, mkdir, delete and rename operate on those actual Android files through the native Android folder bridge. ' +
-          ((typeof L !== 'undefined' && L.bridgeUrl && L.bridgeUrl !== 'codespace-native://local')
+          ((typeof L !== 'undefined' && L.bridgeUrl && L.bridgeUrl !== 'codespace-native://local' && !(typeof csDeviceCap === 'function' && csDeviceCap('terminal')))
             ? 'run_command / shell tools execute on the REMOTE sandbox server, NOT on the Android device and NOT against these files. Do NOT use shell commands to read, write or verify Android project files — use the filesystem tools instead. A shell command that succeeds remotely says nothing about the Android files.'
-            : 'Shell commands also run on the Android device (app-private workspace) when available; SAF folders are file-API only.');
+            : 'run_command / shell tools also run on the Android device against this folder through the native terminal bridge. Device browser tools (browser_open, browser_screenshot, browser_devtools, etc.) always control the CodeSpace Browser on this Android device, even when you are using a remote sandbox.');
       }
       /* 3.13.3: the workspace jail. The model works ONLY in the folder the user opened first. */
       s += '\n\nWORKSPACE SCOPE (strict): You work ONLY inside the workspace root ' + i.root + '. Never list, read, search, or write paths outside it — no other folders, no home directory, no sibling projects, no other drives. Use workspace-relative paths (they resolve from the root). If the user asks about a file or folder that is not inside the workspace, do NOT go looking elsewhere: say it is not in the workspace and ask them to either open that folder in CodeSpace or explicitly approve one-time outside access (CodeSpace will show an approval dialog). Writes outside the workspace are always refused.';

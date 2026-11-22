@@ -17,8 +17,8 @@ android {
         applicationId 'com.codespace.android'
         minSdk 26
         targetSdk 35
-        versionCode 31852
-        versionName '3.19.1-android-v47.2'
+        versionCode 31854
+        versionName '3.19.1-android-v47.4'
         buildConfigField 'String', 'NODE_RUNTIME_VERSION', '"24.22.1"'
         buildConfigField 'boolean', 'NODE_RUNTIME_INCLUDED', 'true'
         // On-device builds: the SDK CMake/Ninja/NDK host tools are x86_64 and

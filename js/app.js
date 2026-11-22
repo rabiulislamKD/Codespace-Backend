@@ -91,7 +91,14 @@ function nativeBridgeConfig() {
     if (!api || typeof api.bridgeConfig !== 'function') return null;
     const cfg = JSON.parse(api.bridgeConfig() || '{}');
     if (!cfg || !cfg.bridgeUrl) return null;
-    return { bridgeUrl: String(cfg.bridgeUrl), bridgeToken: String(cfg.bridgeToken || '') };
+    return {
+      bridgeUrl: String(cfg.bridgeUrl),
+      bridgeToken: String(cfg.bridgeToken || ''),
+      sandboxMode: String(cfg.sandboxMode || ''),
+      remote: !!cfg.remote,
+      // v47.3: device-owned tool capabilities. Present even when the AI runs in a remote sandbox.
+      deviceCapabilities: (cfg.deviceCapabilities && typeof cfg.deviceCapabilities === 'object') ? cfg.deviceCapabilities : null
+    };
   } catch { return null; }
 }
 function loadAll() {
@@ -101,7 +108,11 @@ function loadAll() {
   if (S.permMode === 'ask' || !['smart', 'auto', 'all'].includes(S.permMode)) S.permMode = 'smart';
   try { Object.assign(L, JSON.parse(localStorage.getItem('agent3.local') || '{}')); } catch {}
   const nativeBridge = nativeBridgeConfig();
-  if (nativeBridge) { L.bridgeUrl = nativeBridge.bridgeUrl; L.bridgeToken = nativeBridge.bridgeToken; }
+  if (nativeBridge) {
+    L.bridgeUrl = nativeBridge.bridgeUrl; L.bridgeToken = nativeBridge.bridgeToken;
+    L.sandboxMode = nativeBridge.sandboxMode; L.remoteSandbox = nativeBridge.remote;
+    L.deviceCapabilities = nativeBridge.deviceCapabilities;
+  }
   // OpenCode CLI is a genuine Android-local runtime (Termux RUN_COMMAND). Preserve the user's
   // selection across WebView reloads; availability is validated live by toggleOpenCode() /
   // runOpenCodeChat() via the real /opencode/status probe, so a stale true can never dispatch to
@@ -557,10 +568,44 @@ function csAndroidWorkspaceActive() {
   return false;
 }
 
+// v47.3: "which sandbox runs the AI" is NOT the same question as "which device owns this tool".
+// On Android the WebView browser, terminal and picked folder are always device-owned, including
+// when the selected sandbox is Render or GitHub. Use the explicit capabilities published by the
+// native shell rather than the bridge URL shape.
+function csDeviceCap(name) {
+  try { return !!(L.deviceCapabilities && L.deviceCapabilities[name]); } catch { return false; }
+}
+function csDeviceBrowserActive() {
+  if (csDeviceCap('browser')) return true;
+  try { if (typeof ANDROID_NATIVE_BROWSER !== 'undefined' && ANDROID_NATIVE_BROWSER) return true; } catch {}
+  try { return !!(window.CodeSpaceNative && typeof window.CodeSpaceNative.setBrowserBounds === 'function'); } catch { return false; }
+}
+// Browser endpoints implemented by MainActivity.localApiCall(); the remote Render/GitHub server
+// cannot drive the WebView on this device.
+const CS_DEVICE_BROWSER_EP = /^\/(bridge\/(status|call)|browser\/close|browser\/diagnostics)$/;
+// Device shell endpoints. Routed locally only when a folder on the Android device is the active
+// workspace, mirroring the OpenCode run rule, so a genuinely remote repo still runs remotely.
+const CS_DEVICE_TERMINAL_EP = /^\/(run|term\/(start|read|write|resize|stop|close|kill|list))$/;
+
 async function bcall(pathname, body, signal) {
   // Android Local mode uses the app-private native workspace adapter; it never falls back
   // to the Render service. Only explicitly implemented endpoints are available locally.
   if (L.bridgeUrl === 'codespace-native://local') {
+    return await csNativeCall(pathname, body, signal);
+  }
+
+  // v47.3: device-owned browser calls must stay on the device even when the AI runs in a remote
+  // sandbox. Previously these went to Render/GitHub, where no CodeSpace WebView exists, so the
+  // integrated browser, CDP and screenshots were unusable in sandbox modes.
+  if (csDeviceBrowserActive() && CS_DEVICE_BROWSER_EP.test(pathname) && window.CodeSpaceNative &&
+      typeof window.CodeSpaceNative.localApiCall === 'function') {
+    return await csNativeCall(pathname, body, signal);
+  }
+
+  // v47.3: with an Android folder selected, shell commands operate on that folder, so they must
+  // run through the device terminal adapter even if the model itself is hosted remotely.
+  if (csDeviceCap('terminal') && CS_DEVICE_TERMINAL_EP.test(pathname) && window.CodeSpaceNative &&
+      typeof window.CodeSpaceNative.localApiCall === 'function' && csAndroidWorkspaceActive()) {
     return await csNativeCall(pathname, body, signal);
   }
 
@@ -1608,7 +1653,14 @@ function closeModelMenu() {
 function setBusy(b, text) {
   $('sendBtn').hidden = b; $('stopBtn').hidden = !b; $('input').disabled = b;
   $('ctxHint').textContent = b ? (text || 'Working…') : '';
-  if (!b) { $('input').focus(); updateMeters(); }
+  if (!b) {
+    // v47.3: auto-focusing the composer on a phone raises the soft keyboard over the chat
+    // (including at startup and after every turn). Only desktop/fine pointers get auto-focus.
+    let coarse = false;
+    try { coarse = (navigator.maxTouchPoints || 0) > 0 || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); } catch {}
+    if (!coarse) $('input').focus();
+    updateMeters();
+  }
 }
 
 /* ================= approvals + file access ================= */
@@ -2050,8 +2102,13 @@ function toolDefs() {
     if (B.info.node && B.info.node.available && B.info.node.inspectorCdpBridgeAvailable) t.push(...NODE_DEBUG_TOOLS);
     if (S.multiAgent) t.push(DELEGATE_TOOL);
     const group = (g, exists, tools) => { if (!exists) return; if (wantGroup(g)) t.push(...tools); else hidden.push(g); };
-    group('browser', B.info.browser, BROWSER_TOOLS);
-    group('browser', B.info.browser, BROWSER_TOOLS_310);
+    // v47.3: a remote /info often reports browser:false because it has no Chrome, while the
+    // Android device still has its own integrated WebView browser. Advertise browser tools from
+    // the device capability too, otherwise the AI cannot see them in sandbox modes.
+    const browserCapable = !!(B.info.browser ||
+      (typeof csDeviceBrowserActive === 'function' && csDeviceBrowserActive()));
+    group('browser', browserCapable, BROWSER_TOOLS);
+    group('browser', browserCapable, BROWSER_TOOLS_310);
     group('github', B.conn.github && B.conn.github.connected, [GH_TOOL]);
     group('vercel', B.conn.vercel && B.conn.vercel.connected, [VC_TOOL]);
     group('database', B.conn.mysql && B.conn.mysql.connected, [DB_TOOL]);
@@ -2117,9 +2174,9 @@ function buildSystem() {
          model never claims a shell command ran on the Android filesystem when it did not. */
       if (i.platform === 'android' && i.fileProvider === 'android-native-bridge') {
         s += '\n\nFILESYSTEM LOCATION: This workspace (' + i.workspaceKind + ', id ' + (i.workspaceId || 'n/a') + ') lives on the USER\'S ANDROID DEVICE. read_file, write_file, search_files, list_files, mkdir, delete and rename operate on those actual Android files through the native Android folder bridge. ' +
-          ((typeof L !== 'undefined' && L.bridgeUrl && L.bridgeUrl !== 'codespace-native://local')
+          ((typeof L !== 'undefined' && L.bridgeUrl && L.bridgeUrl !== 'codespace-native://local' && !(typeof csDeviceCap === 'function' && csDeviceCap('terminal')))
             ? 'run_command / shell tools execute on the REMOTE sandbox server, NOT on the Android device and NOT against these files. Do NOT use shell commands to read, write or verify Android project files — use the filesystem tools instead. A shell command that succeeds remotely says nothing about the Android files.'
-            : 'Shell commands also run on the Android device (app-private workspace) when available; SAF folders are file-API only.');
+            : 'run_command / shell tools also run on the Android device against this folder through the native terminal bridge. Device browser tools (browser_open, browser_screenshot, browser_devtools, etc.) always control the CodeSpace Browser on this Android device, even when you are using a remote sandbox.');
       }
       /* 3.13.3: the workspace jail. The model works ONLY in the folder the user opened first. */
       s += '\n\nWORKSPACE SCOPE (strict): You work ONLY inside the workspace root ' + i.root + '. Never list, read, search, or write paths outside it — no other folders, no home directory, no sibling projects, no other drives. Use workspace-relative paths (they resolve from the root). If the user asks about a file or folder that is not inside the workspace, do NOT go looking elsewhere: say it is not in the workspace and ask them to either open that folder in CodeSpace or explicitly approve one-time outside access (CodeSpace will show an approval dialog). Writes outside the workspace are always refused.';
@@ -2175,8 +2232,24 @@ const isWrite = m => m && String(m).toUpperCase() !== 'GET';
 /* ================= Browser Bridge: drive the user's own Chrome through the CodeSpace Bridge extension ================= */
 async function bridgeIsUp(sig) { try { const st = await bcall('/bridge/status', {}, sig); return !!(st && st.connected); } catch { return false; } }
 async function bridgeRun(action, args, sig, timeoutMs) {
-  const r = await bcall('/bridge/call', { action, args: args || {}, timeoutMs }, sig);
+  const body = { action, args: args || {}, timeoutMs };
+  let r = await bcall('/bridge/call', body, sig);
+  // v47.3: /bridge/call is behind the server's browser permission guard. When the policy is
+  // "ask" the server returns a single-use challenge instead of executing the action. Previously
+  // bridgeRun treated that challenge as a successful result, so the model was told a click (or
+  // any other bridge action) ran when it never did. Complete the same handshake bApproved uses.
+  for (let hops = 0; r && r.needsApproval && hops < 4; hops++) {
+    const note = r.note ? String(r.note).trim() : '';
+    const preview = (note ? note + '\n\n' : '') + String(r.preview || '') +
+      (r.permission ? '\n\nPermission: ' + r.permission : '');
+    const okd = await approve('Allow browser action: ' + action + '?', preview, 'browser_bridge',
+      permMeta('site', hostOf((args && args.url) || lastUrl || '')));
+    if (!okd) throw new Error('User denied the browser action: ' + action + '. Nothing was executed.');
+    r = await bcall('/bridge/call', { ...body, approvalToken: r.approvalToken }, sig);
+    if (r && r.needsApproval && hops === 3) throw new Error('The browser approval could not be used (expired, invalid or for a different action). Nothing was executed.');
+  }
   if (!r || r.ok === false) throw new Error((r && r.error) || 'The browser bridge failed.');
+  if (r && r.denied) throw new Error('Blocked by browser permission settings.');
   // Extension bridge wraps in result; local Android bridge returns data directly
   return r.result !== undefined ? r.result : r;
 }
@@ -2568,6 +2641,10 @@ async function execBridge(call, sig) {
       return clip('Crawled ' + count + ' page(s) from ' + start + ':\n\n' + pageText + errors + (r.truncated ? '\n\n[Result truncated by crawl limits]' : ''));
     }
     case 'web_screenshot': {
+      // v47.3: Android Local has no /web/screenshot endpoint; its implementation lives in the
+      // native CodeSpace Browser branch below. Fall through to it instead of reporting a bogus
+      // success from a server call that never existed.
+      if ((typeof csDeviceBrowserActive === 'function' && csDeviceBrowserActive()) || ANDROID_NATIVE_BROWSER) break;
       const r = await bApproved('/web/screenshot', { url: a.url, full_page: !!a.full_page }, sig, 'Open a website and screenshot it?', 'browser_ext', permMeta('site', hostOf(a.url)));
       if (!r) return DENIED('User denied the screenshot.');
       showPanel(false); bShow(r);
@@ -2789,10 +2866,14 @@ async function execBridge(call, sig) {
       return clip('Sandboxes (' + r.counts.active + '/' + r.counts.max + ' active):\n' + (r.sandboxes.map(s => '- ' + s.id + ' [' + s.provider + (s.profile ? ' · ' + s.profile : '') + '] ' + s.state + ' · network ' + s.networkPolicy + (s.lastExitCode != null ? ' · last exit ' + s.lastExitCode : '')).join('\n') || '(none yet)'));
     }
   }
-  if (call.name.startsWith('browser_')) {
+  // v47.3: web_screenshot does not start with "browser_" but Android routes it through the same
+  // native CodeSpace Browser implementation as browser_screenshot.
+  const deviceBrowser = (typeof csDeviceBrowserActive === 'function' && csDeviceBrowserActive()) ||
+    !!(typeof ANDROID_NATIVE_BROWSER !== 'undefined' && ANDROID_NATIVE_BROWSER);
+  if (call.name.startsWith('browser_') || (deviceBrowser && call.name === 'web_screenshot')) {
     const hu = S.humanize;
     if (call.name === 'browser_devtools') {
-      if (L.bridgeUrl !== 'codespace-native://local') return 'Native WebView CDP is available only in Android Local mode.';
+      if (!deviceBrowser) return 'Native WebView CDP is available only when the Android device browser is active.';
       const action = String(a.action || 'status');
       if (action === 'enable') {
         if (!await approve('Enable Chrome DevTools Protocol for this Android browser?', 'This opens the app WebView debugging socket so CodeSpace can inspect network traffic, headers, bounded bodies, WebSocket frames and console events. Disconnect when finished.', 'browser_devtools', permMeta('site', hostOf(lastUrl)))) return DENIED('User denied enabling WebView DevTools.');
@@ -2818,8 +2899,8 @@ async function execBridge(call, sig) {
     // generic extension/Agent-Chrome fallback. Previously they were accidentally nested
     // inside the B310 check, so Android skipped showPanel() and the local page-load wait.
     const ANDROID_LOCAL_CORE = { browser_open: 1, browser_back: 1, browser_forward: 1, browser_reload: 1, browser_read: 1, browser_screenshot: 1, web_screenshot: 1, browser_click: 1, browser_type: 1, browser_scroll: 1, browser_run_js: 1, browser_network: 1, browser_console: 1 };
-    if (B310[call.name] || (L.bridgeUrl === 'codespace-native://local' && ANDROID_LOCAL_CORE[call.name])) {
-      if (L.bridgeUrl === 'codespace-native://local') {
+    if (B310[call.name] || (deviceBrowser && ANDROID_LOCAL_CORE[call.name])) {
+      if (deviceBrowser && ANDROID_NATIVE_BROWSER) {
         if (call.name === 'browser_dom_snapshot') {
           showPanel(false);
           const r = await bridgeRun('dom_snapshot', { max_nodes: a.max_nodes }, sig, 20000);
@@ -2923,7 +3004,10 @@ async function execBridge(call, sig) {
           const r = await bridgeRun('screenshot', { fullPage: !!a.full_page }, sig, 45000);
           if (!r || !r.url || r.url === 'about:blank') return 'No page is open in the CodeSpace Browser after navigation.';
           lastUrl = r.url;
-          if (P().vision) return { text: 'Screenshot of ' + r.url + ' (title: ' + r.title + ') — CodeSpace Browser page only.', image: r.image };
+          // v47.3: the Android WebView screenshot captures the visible viewport. Say so instead of
+          // letting the model believe full_page was honoured.
+          const fullNote = a.full_page ? ' Full-page capture is not available in the Android embedded browser; the visible page was captured.' : '';
+          if (P().vision) return { text: 'Screenshot of ' + r.url + ' (title: ' + r.title + ') — CodeSpace Browser page only.' + fullNote, image: r.image };
           return 'A CodeSpace Browser screenshot was captured, but this model cannot view images. Use browser_read to inspect the page text and elements.';
         }
         if (call.name === 'browser_screenshot') {
@@ -2932,7 +3016,8 @@ async function execBridge(call, sig) {
           if (!r || !r.url || r.url === 'about:blank') return 'No page is open in the CodeSpace Browser. Call browser_open with a URL first.';
           if (r.source && r.source !== 'browser') return 'Refused: the screenshot did not come from the CodeSpace Browser page.';
           if (r.url) lastUrl = r.url;
-          if (P().vision) return { text: 'Screenshot of ' + r.url + ' (title: ' + r.title + ') — CodeSpace Browser page only.', image: r.image };
+          const fullNote = a.full_page ? ' Full-page capture is not available in the Android embedded browser; the visible page was captured.' : '';
+          if (P().vision) return { text: 'Screenshot of ' + r.url + ' (title: ' + r.title + ') — CodeSpace Browser page only.' + fullNote, image: r.image };
           return 'A CodeSpace Browser screenshot was captured, but this model cannot view images. Use browser_read to inspect the page text and elements.';
         }
         if (call.name === 'browser_click') {
@@ -5416,10 +5501,21 @@ async function embNetDrain(a) {
    BEHIND the native browser. Every floating element is now listed here, and a MutationObserver
    (installed below) re-evaluates visibility the moment one opens or closes instead of waiting for the
    400 ms audit tick. */
-const BROWSER_OVERLAY_SELECTORS = ['dialog[open]', '#menuDrop:not([hidden])', '#provMenu:not([hidden])', '#permMenu:not([hidden])', '#routeMenu:not([hidden])', '#ctxPop:not([hidden])', '.ctxmenu:not([hidden])', '.mb-drop:not([hidden])', '#codespaceSplash:not([hidden])', '.pop:not([hidden])', '#sideSplit.dragging', '[data-occludes-browser]:not([hidden])'];
+const BROWSER_OVERLAY_SELECTORS = ['dialog[open]', '#menuDrop:not([hidden])', '#provMenu:not([hidden])', '#permMenu:not([hidden])', '#routeMenu:not([hidden])', '#ctxPop:not([hidden])', '.ctxmenu:not([hidden])', '.mb-drop:not([hidden])', '#codespaceSplash:not([hidden])', '.pop:not([hidden])', '.cs-touch-context:not([hidden])', '#sideSplit.dragging', '[data-occludes-browser]:not([hidden])'];
 function browserOverlayOpen() {
   try {
     if (document.body && document.body.classList.contains('cs-dragging')) return true;
+    // v47.3: on phone/tablet the sidebar is an absolutely-positioned drawer. It has a DOM z-index,
+    // but the native browser is a real Android view drawn above every DOM layer, so the drawer
+    // would otherwise appear underneath it.
+    const side = $('side');
+    if (side && getComputedStyle(side).position === 'absolute') {
+      const sr = side.getBoundingClientRect(), bv = $('bview');
+      const br = bv ? visibleBrowserRect(bv) : { x: 0, y: 0, width: 0, height: 0 };
+      if (sr.width > 1 && sr.height > 1 && br.width > 1 && br.height > 1 &&
+          Math.min(sr.right, br.x + br.width) > Math.max(sr.left, br.x) &&
+          Math.min(sr.bottom, br.y + br.height) > Math.max(sr.top, br.y)) return true;
+    }
     for (const sel of BROWSER_OVERLAY_SELECTORS) {
       const el = document.querySelector(sel);
       if (!el) continue;
@@ -5459,6 +5555,13 @@ function visibleBrowserRect(el) {
   let l = r0.left, t = r0.top, rt = r0.right, b = r0.bottom;
   const clip = (x0, y0, x1, y1) => { l = Math.max(l, x0); t = Math.max(t, y0); rt = Math.min(rt, x1); b = Math.min(b, y1); };
   clip(0, 0, window.innerWidth, window.innerHeight);
+  // v47.3: when the Android soft keyboard resizes/offsets the visual viewport, DOM rects can still
+  // report the full layout viewport. Clip to the visible area so the native WebView never spills
+  // over the keyboard or a zoomed-out edge.
+  if (window.visualViewport) {
+    const vv = window.visualViewport, vx = vv.offsetLeft || 0, vy = vv.offsetTop || 0;
+    clip(vx, vy, vx + vv.width, vy + vv.height);
+  }
   for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
     const cs = getComputedStyle(a);
     if (cs.display === 'none') return { x: l, y: t, width: 0, height: 0 };
@@ -5544,6 +5647,7 @@ if (DESKTOP_EMBED) {
 if (ANDROID_NATIVE_BROWSER) {
   const sync = () => syncAndroidBrowserBounds();
   window.addEventListener('resize', sync); window.addEventListener('scroll', sync, true);
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', sync); window.visualViewport.addEventListener('scroll', sync); }
   if (window.ResizeObserver) { const ro = new ResizeObserver(sync); ro.observe($('bview')); ro.observe($('bp')); }
   let raf = 0; const soon = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; sync(); }); };
   try { new MutationObserver(soon).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden', 'open', 'class'] }); new MutationObserver(soon).observe(document.body, { childList: true }); } catch {}
@@ -7211,7 +7315,17 @@ async function bridgeWatchTick() {
     // /bridge/status is not a local-routed file endpoint, so this always checks the remote.
     try {
       const st = await bcall('/bridge/status', {}, undefined);
-      if (st) { bridgeWatch.tries = 0; bridgeWatch.nextAt = 0; return; } // healthy
+      if (st) {
+        bridgeWatch.tries = 0; bridgeWatch.nextAt = 0;
+        // v47.3: /info.browser is computed when /info is fetched. An extension that connects
+        // after startup flips that capability from false to true; without a refresh the browser
+        // tools stay hidden until the user reconnects or reloads the page.
+        if (st.connected && B.ok && !(typeof csDeviceBrowserActive === 'function' && csDeviceBrowserActive())) {
+          const info = await bcall('/info', {}, undefined).catch(() => null);
+          if (info && !!info.browser !== !!B.info.browser) { B.info = info; afterBridge(); }
+        }
+        return; // healthy
+      }
     } catch {
       B.ok = false; B.info = null; B.skills = []; B.ext = []; B.conn = {};
       bridgeWatch.nextAt = 0; afterBridge();
@@ -9514,6 +9628,14 @@ Prioritize issues that prevent CodeSpace from starting, connecting to providers,
     });
   }
   function open(i, focusFirst) {
+    // v47.3: on touch devices a focused text field raises the soft keyboard over the dropdown.
+    // Blur it before showing the menu (desktop/mouse keeps focus for selection as before).
+    try {
+      if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+        const ae = document.activeElement;
+        if (ae && typeof ae.blur === 'function' && ae !== document.body) ae.blur();
+      }
+    } catch {}
     if (openIdx >= 0 && openIdx !== i) { titles[openIdx].classList.remove('open'); titles[openIdx].setAttribute('aria-expanded', 'false'); }
     openIdx = i; render(i); drop.hidden = false;
     const t = titles[i]; t.classList.add('open'); t.setAttribute('aria-expanded', 'true');

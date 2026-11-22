@@ -3299,7 +3299,9 @@ function extRemove(b) {
 /* ---------- workspace folder (Open folder) ---------- */
 /* ---------- Browser Bridge: the CodeSpace Bridge Chrome extension long-polls here; the AI's browser_* tools queue commands for it ---------- */
 const BRIDGE = { lastPoll: 0, ever: false, queue: [], waiter: null, pending: new Map(), seq: 0 };
-const BRIDGE_ACTIONS = new Set(['tabs', 'open', 'read', 'click', 'type', 'scroll', 'screenshot', 'eval', 'console', 'network', 'close']);
+// v47.3: back/forward/reload are exposed by the browser_* tools, so the bridge must accept and
+// implement them. Previously they were dispatched to the extension but rejected as unsupported.
+const BRIDGE_ACTIONS = new Set(['tabs', 'open', 'back', 'forward', 'reload', 'read', 'click', 'type', 'scroll', 'screenshot', 'eval', 'console', 'network', 'close']);
 const bridgeConnected = () => Date.now() - BRIDGE.lastPoll < 45000;
 const bridgeStatus = () => ({ connected: bridgeConnected(), ever: BRIDGE.ever, lastSeenMs: BRIDGE.lastPoll ? Date.now() - BRIDGE.lastPoll : null, pending: BRIDGE.pending.size });
 function bridgeDeliver() {

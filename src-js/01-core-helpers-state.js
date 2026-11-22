@@ -89,7 +89,14 @@ function nativeBridgeConfig() {
     if (!api || typeof api.bridgeConfig !== 'function') return null;
     const cfg = JSON.parse(api.bridgeConfig() || '{}');
     if (!cfg || !cfg.bridgeUrl) return null;
-    return { bridgeUrl: String(cfg.bridgeUrl), bridgeToken: String(cfg.bridgeToken || '') };
+    return {
+      bridgeUrl: String(cfg.bridgeUrl),
+      bridgeToken: String(cfg.bridgeToken || ''),
+      sandboxMode: String(cfg.sandboxMode || ''),
+      remote: !!cfg.remote,
+      // v47.3: device-owned tool capabilities. Present even when the AI runs in a remote sandbox.
+      deviceCapabilities: (cfg.deviceCapabilities && typeof cfg.deviceCapabilities === 'object') ? cfg.deviceCapabilities : null
+    };
   } catch { return null; }
 }
 function loadAll() {
@@ -99,7 +106,11 @@ function loadAll() {
   if (S.permMode === 'ask' || !['smart', 'auto', 'all'].includes(S.permMode)) S.permMode = 'smart';
   try { Object.assign(L, JSON.parse(localStorage.getItem('agent3.local') || '{}')); } catch {}
   const nativeBridge = nativeBridgeConfig();
-  if (nativeBridge) { L.bridgeUrl = nativeBridge.bridgeUrl; L.bridgeToken = nativeBridge.bridgeToken; }
+  if (nativeBridge) {
+    L.bridgeUrl = nativeBridge.bridgeUrl; L.bridgeToken = nativeBridge.bridgeToken;
+    L.sandboxMode = nativeBridge.sandboxMode; L.remoteSandbox = nativeBridge.remote;
+    L.deviceCapabilities = nativeBridge.deviceCapabilities;
+  }
   // OpenCode CLI is a genuine Android-local runtime (Termux RUN_COMMAND). Preserve the user's
   // selection across WebView reloads; availability is validated live by toggleOpenCode() /
   // runOpenCodeChat() via the real /opencode/status probe, so a stale true can never dispatch to

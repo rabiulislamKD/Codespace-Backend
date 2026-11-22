@@ -251,7 +251,14 @@ function closeModelMenu() {
 function setBusy(b, text) {
   $('sendBtn').hidden = b; $('stopBtn').hidden = !b; $('input').disabled = b;
   $('ctxHint').textContent = b ? (text || 'Working…') : '';
-  if (!b) { $('input').focus(); updateMeters(); }
+  if (!b) {
+    // v47.3: auto-focusing the composer on a phone raises the soft keyboard over the chat
+    // (including at startup and after every turn). Only desktop/fine pointers get auto-focus.
+    let coarse = false;
+    try { coarse = (navigator.maxTouchPoints || 0) > 0 || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); } catch {}
+    if (!coarse) $('input').focus();
+    updateMeters();
+  }
 }
 
 /* ================= approvals + file access ================= */

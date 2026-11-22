@@ -14,10 +14,10 @@ const fn = source.slice(source.indexOf('async function csNativeCall('), source.i
 const coreSource = fs.readFileSync(path.join(__dirname, '..', 'src-js', '01-core-helpers-state.js'), 'utf8');
 const nativeConfigFn = coreSource.slice(coreSource.indexOf('function nativeBridgeConfig()'), coreSource.indexOf('\nfunction loadAll()'));
 
-function makeContext(reply, signal) {
+function makeContext(reply, signal, localState) {
   const calls = [];
   const context = {
-    L: { bridgeUrl: 'codespace-native://local', bridgeToken: 'android-local-native' },
+    L: localState || { bridgeUrl: 'codespace-native://local', bridgeToken: 'android-local-native' },
     window: { CodeSpaceNative: { localApiCall: (route, body) => { calls.push({ route, body }); return JSON.stringify(reply); } } },
     AbortSignal,
     setTimeout, clearTimeout,
@@ -62,13 +62,55 @@ test('native bridge configuration is authoritative for the WebView', () => {
       bridgeUrl: 'https://example-8787.app.github.dev',
       bridgeToken: 'remote-token',
       sandboxMode: 'GitHub',
-      remote: true
+      remote: true,
+      deviceCapabilities: { browser: true, terminal: true, localFiles: true }
     })
   });
   assert.deepEqual(JSON.parse(JSON.stringify(context.testNativeBridgeConfig())), {
     bridgeUrl: 'https://example-8787.app.github.dev',
-    bridgeToken: 'remote-token'
+    bridgeToken: 'remote-token',
+    sandboxMode: 'GitHub',
+    remote: true,
+    deviceCapabilities: { browser: true, terminal: true, localFiles: true }
   });
+});
+
+test('remote sandbox config preserves device capabilities for local tool routing', async () => {
+  const caps = { browser: true, terminal: true, localFiles: true };
+  const { context, calls } = makeContext({ status: 200, data: { connected: true, mode: 'android-webview' } }, null, {
+    bridgeUrl: 'https://example-8787.app.github.dev',
+    bridgeToken: 'remote-token',
+    deviceCapabilities: caps
+  });
+  const result = await context.testBcall('/bridge/status', {});
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { connected: true, mode: 'android-webview' });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].route, '/bridge/status');
+});
+
+test('remote sandbox routes browser calls to the device but keeps unrelated calls remote', async () => {
+  const caps = { browser: true, terminal: true, localFiles: true };
+  const local = makeContext({ status: 200, data: { ok: true, url: 'https://example.com' } }, null, {
+    bridgeUrl: 'https://example-8787.app.github.dev', bridgeToken: 'remote-token', deviceCapabilities: caps
+  });
+  const got = await local.context.testBcall('/bridge/call', { action: 'screenshot', args: {} });
+  assert.equal(got.ok, true);
+  assert.equal(local.calls.length, 1);
+  assert.equal(local.calls[0].route, '/bridge/call');
+
+  const remoteCalls = [];
+  const remote = {
+    L: { bridgeUrl: 'https://example-8787.app.github.dev', bridgeToken: 't', deviceCapabilities: caps },
+    window: { CodeSpaceNative: { localApiCall: () => { throw new Error('must not be called'); } } },
+    AbortSignal, setTimeout, clearTimeout,
+    fetch: async (url, init) => { remoteCalls.push({ url, body: JSON.parse(init.body) }); return { ok: true, json: async () => ({ ok: true, remote: true }) }; }
+  };
+  vm.createContext(remote);
+  vm.runInContext(fn + '\nthis.testBcall = bcall;', remote);
+  const out = await remote.testBcall('/sandbox/list', {});
+  assert.deepEqual(JSON.parse(JSON.stringify(out)), { ok: true, remote: true });
+  assert.equal(remoteCalls.length, 1);
+  assert.match(remoteCalls[0].url, /example-8787\.app\.github\.dev\/sandbox\/list/);
 });
 
 test('native bridge configuration is optional outside the Android shell', () => {

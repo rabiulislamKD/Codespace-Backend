@@ -211,6 +211,14 @@ Prioritize issues that prevent CodeSpace from starting, connecting to providers,
     });
   }
   function open(i, focusFirst) {
+    // v47.3: on touch devices a focused text field raises the soft keyboard over the dropdown.
+    // Blur it before showing the menu (desktop/mouse keeps focus for selection as before).
+    try {
+      if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+        const ae = document.activeElement;
+        if (ae && typeof ae.blur === 'function' && ae !== document.body) ae.blur();
+      }
+    } catch {}
     if (openIdx >= 0 && openIdx !== i) { titles[openIdx].classList.remove('open'); titles[openIdx].setAttribute('aria-expanded', 'false'); }
     openIdx = i; render(i); drop.hidden = false;
     const t = titles[i]; t.classList.add('open'); t.setAttribute('aria-expanded', 'true');

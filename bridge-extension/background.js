@@ -317,6 +317,23 @@ const HANDLERS = {
     await inPage(tab.id, pageScroll, [Number(args.pixels) || 0, String(args.to || '')]);
     await sleep(300); return await readInfo(tab.id);
   },
+  // v47.3: browser_back / browser_forward / browser_reload used to be sent by the frontend but
+  // rejected here as an unsupported action. Implement them against the shared bridge tab.
+  async back() {
+    const tab = await targetTab();
+    try { await chrome.tabs.goBack(tab.id); } catch (e) { throw new Error('Cannot go back: ' + (e && e.message || e)); }
+    await settle(tab.id); return await readInfo(tab.id);
+  },
+  async forward() {
+    const tab = await targetTab();
+    try { await chrome.tabs.goForward(tab.id); } catch (e) { throw new Error('Cannot go forward: ' + (e && e.message || e)); }
+    await settle(tab.id); return await readInfo(tab.id);
+  },
+  async reload() {
+    const tab = await targetTab();
+    try { await chrome.tabs.reload(tab.id); } catch (e) { throw new Error('Cannot reload: ' + (e && e.message || e)); }
+    await settle(tab.id); return await readInfo(tab.id);
+  },
   async screenshot() {
     const tab = await targetTab();
     await chrome.tabs.update(tab.id, { active: true }); await sleep(250);

@@ -57,7 +57,10 @@ async function csNativeCall(pathname, body, signal) {
 
 // File/workspace endpoints that must always operate on the folder the user picked,
 // regardless of which sandbox (Local / Free server / GitHub) is selected.
-const CS_LOCAL_FILE_EP = /^\/(info|workspace\/(dirs|state|active)|fs\/(list|read|write|create|mkdir|rename|delete|search|stat|metadata|stream|history|undo|redo))$/;
+// v47.4: checkpoints, batch edits and the code index are workspace-owned too. When an Android
+// folder is active they must be served by the device adapter even if the AI brain is a remote
+// sandbox — otherwise every write fails at ensureTurnCheckpoint() with "No folder is open".
+const CS_LOCAL_FILE_EP = /^\/(info|workspace\/(dirs|state|active)|fs\/(list|read|write|create|mkdir|rename|delete|search|stat|metadata|stream|history|undo|redo|editbatch)|checkpoints\/(create|list|compare|restore|delete)|index\/(status|rebuild|search|symbols|references|related|map|rename))$/;
 // OpenCode CLI is a device-local runtime on Android: its status/keys/models/workspace/run must
 // NEVER be sent to the remote Render/Codespace server (which has no Android folder and no
 // /opencode/keys/* endpoints -> "Unknown endpoint"). All of these are served by the native bridge.
@@ -82,10 +85,44 @@ function csAndroidWorkspaceActive() {
   return false;
 }
 
+// v47.3: "which sandbox runs the AI" is NOT the same question as "which device owns this tool".
+// On Android the WebView browser, terminal and picked folder are always device-owned, including
+// when the selected sandbox is Render or GitHub. Use the explicit capabilities published by the
+// native shell rather than the bridge URL shape.
+function csDeviceCap(name) {
+  try { return !!(L.deviceCapabilities && L.deviceCapabilities[name]); } catch { return false; }
+}
+function csDeviceBrowserActive() {
+  if (csDeviceCap('browser')) return true;
+  try { if (typeof ANDROID_NATIVE_BROWSER !== 'undefined' && ANDROID_NATIVE_BROWSER) return true; } catch {}
+  try { return !!(window.CodeSpaceNative && typeof window.CodeSpaceNative.setBrowserBounds === 'function'); } catch { return false; }
+}
+// Browser endpoints implemented by MainActivity.localApiCall(); the remote Render/GitHub server
+// cannot drive the WebView on this device.
+const CS_DEVICE_BROWSER_EP = /^\/(bridge\/(status|call)|browser\/close|browser\/diagnostics)$/;
+// Device shell endpoints. Routed locally only when a folder on the Android device is the active
+// workspace, mirroring the OpenCode run rule, so a genuinely remote repo still runs remotely.
+const CS_DEVICE_TERMINAL_EP = /^\/(run|term\/(start|read|write|resize|stop|close|kill|list))$/;
+
 async function bcall(pathname, body, signal) {
   // Android Local mode uses the app-private native workspace adapter; it never falls back
   // to the Render service. Only explicitly implemented endpoints are available locally.
   if (L.bridgeUrl === 'codespace-native://local') {
+    return await csNativeCall(pathname, body, signal);
+  }
+
+  // v47.3: device-owned browser calls must stay on the device even when the AI runs in a remote
+  // sandbox. Previously these went to Render/GitHub, where no CodeSpace WebView exists, so the
+  // integrated browser, CDP and screenshots were unusable in sandbox modes.
+  if (csDeviceBrowserActive() && CS_DEVICE_BROWSER_EP.test(pathname) && window.CodeSpaceNative &&
+      typeof window.CodeSpaceNative.localApiCall === 'function') {
+    return await csNativeCall(pathname, body, signal);
+  }
+
+  // v47.3: with an Android folder selected, shell commands operate on that folder, so they must
+  // run through the device terminal adapter even if the model itself is hosted remotely.
+  if (csDeviceCap('terminal') && CS_DEVICE_TERMINAL_EP.test(pathname) && window.CodeSpaceNative &&
+      typeof window.CodeSpaceNative.localApiCall === 'function' && csAndroidWorkspaceActive()) {
     return await csNativeCall(pathname, body, signal);
   }
 

@@ -598,7 +598,17 @@ async function bridgeWatchTick() {
     // /bridge/status is not a local-routed file endpoint, so this always checks the remote.
     try {
       const st = await bcall('/bridge/status', {}, undefined);
-      if (st) { bridgeWatch.tries = 0; bridgeWatch.nextAt = 0; return; } // healthy
+      if (st) {
+        bridgeWatch.tries = 0; bridgeWatch.nextAt = 0;
+        // v47.3: /info.browser is computed when /info is fetched. An extension that connects
+        // after startup flips that capability from false to true; without a refresh the browser
+        // tools stay hidden until the user reconnects or reloads the page.
+        if (st.connected && B.ok && !(typeof csDeviceBrowserActive === 'function' && csDeviceBrowserActive())) {
+          const info = await bcall('/info', {}, undefined).catch(() => null);
+          if (info && !!info.browser !== !!B.info.browser) { B.info = info; afterBridge(); }
+        }
+        return; // healthy
+      }
     } catch {
       B.ok = false; B.info = null; B.skills = []; B.ext = []; B.conn = {};
       bridgeWatch.nextAt = 0; afterBridge();

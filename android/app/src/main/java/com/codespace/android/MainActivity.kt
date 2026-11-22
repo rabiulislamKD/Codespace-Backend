@@ -901,10 +901,20 @@ class MainActivity : Activity() {
             "cdp_targets" -> return AndroidWebViewCdp.targets()
             "cdp_enable" -> {
                 WebView.setWebContentsDebuggingEnabled(true)
-                Thread.sleep(180)
                 require(currentBrowser() != null) { "Open a browser tab before connecting DevTools" }
-                val connected = AndroidWebViewCdp.connect(lastBrowserUrl)
-                return connected.put("ok", true).put("warning", "WebView remote debugging is enabled for this app process. Disable it when finished to close the local DevTools socket.")
+                // v47.3: in release builds WebView debugging was off when the WebViews were created,
+                // so the devtools socket can take a moment to publish the browser page target. Retry
+                // briefly instead of failing the first /json/list read.
+                var connected: JSONObject? = null
+                var lastError: Exception? = null
+                repeat(10) {
+                    if (connected != null) return@repeat
+                    try { connected = AndroidWebViewCdp.connect(lastBrowserUrl) }
+                    catch (e: Exception) { lastError = e; Thread.sleep(200) }
+                }
+                val result = connected ?: throw IllegalStateException(
+                    "WebView DevTools did not expose the browser page: " + (lastError?.message ?: "no target"))
+                return result.put("ok", true).put("warning", "WebView remote debugging is enabled for this app process. Disable it when finished to close the local DevTools socket.")
             }
             "cdp_disconnect" -> {
                 AndroidWebViewCdp.disconnect()
@@ -1227,6 +1237,83 @@ class MainActivity : Activity() {
             if (!f.isFile || f.length() > maxBytes) null else f.readText(Charsets.UTF_8).take(maxBytes)
         }
     } catch (_: Exception) { null }
+
+    // v47.4: workspace-owned batch edits and symbol rename. The remote agent-server cannot see the
+    // Android/SAF folder, so these must run through the local adapter. File-level approval already
+    // happened in the tool UI, so individual writes here do not raise another approval dialog.
+    private fun localWorkspaceWrite(rel: String, content: String) {
+        val bytes = content.toByteArray(Charsets.UTF_8)
+        require(bytes.size <= 1_000_000) { "Write exceeds the file size limit" }
+        if (hasSafWorkspace()) {
+            val (parent, name) = safParentAndName(rel)
+            val existing = parent.findFile(name)
+            localHistoryPush(rel, existing != null, null)
+            val target = existing ?: parent.createFile("application/octet-stream", name) ?: throw IllegalStateException("Could not create file")
+            require(target.isFile) { "Destination is not a file" }
+            contentResolver.openOutputStream(target.uri, "wt")?.use { it.write(bytes) } ?: throw IllegalStateException("Could not open file for writing")
+        } else {
+            val file = safeFile(rel)
+            require(file != localRoot.canonicalFile) { "Missing file path" }
+            localHistoryPush(rel, file.isFile, null)
+            file.parentFile?.mkdirs()
+            file.outputStream().use { it.write(bytes) }
+        }
+    }
+
+    private fun localFsEditBatch(body: JSONObject): JSONObject {
+        val edits = body.optJSONArray("edits")
+        require(edits != null && edits.length() > 0) { "No edits given" }
+        require(edits.length() <= 50) { "Too many edits in one batch (maximum 50)" }
+        val plan = ArrayList<Triple<String, String, String>>()
+        for (i in 0 until edits.length()) {
+            val e = edits.optJSONObject(i) ?: continue
+            val rel = e.optString("path", "").trim()
+            require(rel.isNotEmpty()) { "Missing file path in edit batch" }
+            val ext = rel.substringAfterLast('.', "").lowercase()
+            require(ext !in setOf("png", "jpg", "jpeg", "gif", "webp", "pdf", "zip", "7z", "exe", "dll", "so", "apk", "mp3", "mp4", "bin")) { "Refusing to edit a binary file: $rel" }
+            val content = localWorkspaceRead(rel, 2_000_000) ?: throw IllegalArgumentException("Not a readable text file: $rel")
+            val updated = if (e.has("content")) e.optString("content") else {
+                val old = e.optString("old_text", "")
+                require(old.isNotEmpty()) { "old_text is required for $rel" }
+                val n = content.split(old).size - 1
+                require(n > 0) { "old_text not found in $rel — nothing was changed" }
+                require(n == 1 || e.optBoolean("replace_all", false)) { "old_text appears $n times in $rel; pass replace_all:true — nothing was changed" }
+                val replacement = e.optString("new_text", "")
+                if (e.optBoolean("replace_all", false)) content.split(old).joinToString(replacement) else content.replaceFirst(old, replacement)
+            }
+            plan.add(Triple(rel, content, updated))
+        }
+        // Pre-validation above is complete: only now write any file.
+        val results = org.json.JSONArray(); var applied = 0
+        for ((rel, _, updated) in plan) {
+            localWorkspaceWrite(rel, updated)
+            applied++
+            results.put(JSONObject().put("path", rel).put("bytes", updated.toByteArray(Charsets.UTF_8).size).put("changed", true))
+        }
+        return JSONObject().put("ok", true).put("applied", applied).put("results", results)
+    }
+
+    private fun localIndexRename(body: JSONObject): JSONObject {
+        val symbol = body.optString("symbol", "").trim()
+        val newName = body.optString("new_name", "").trim()
+        require(symbol.matches(Regex("^[A-Za-z_\$][A-Za-z0-9_\$]*\$"))) { "Invalid symbol name" }
+        require(newName.matches(Regex("^[A-Za-z_\$][A-Za-z0-9_\$]*\$"))) { "Invalid replacement name" }
+        val re = Regex("\\b" + Regex.escape(symbol) + "\\b")
+        val supported = setOf("js", "jsx", "ts", "tsx", "mjs", "cjs", "py", "java", "kt", "go", "rs", "php", "html", "css", "scss", "json", "md", "yml", "yaml", "toml", "xml", "sh", "bat", "ps1", "sql", "dart", "swift", "c", "h", "cpp", "hpp")
+        val (items, _) = localWorkspaceInventory(2400)
+        val files = org.json.JSONArray(); var total = 0
+        for (item in items) {
+            if (item.directory || item.size > 1_000_000L) continue
+            if (item.path.substringAfterLast('.', "").lowercase() !in supported) continue
+            val content = localWorkspaceRead(item.path, 1_000_000) ?: continue
+            val n = re.findAll(content).count()
+            if (n == 0) continue
+            localWorkspaceWrite(item.path, re.replace(content, newName))
+            total += n
+            files.put(JSONObject().put("path", item.path).put("changed", n).put("skipped", false))
+        }
+        return JSONObject().put("ok", true).put("symbol", symbol).put("newName", newName).put("totalReplacements", total).put("files", files)
+    }
 
     /**
      * Developer-intelligence endpoints for the Android Local/SAF workspace. Desktop builds
@@ -1740,6 +1827,14 @@ class MainActivity : Activity() {
                 .put("bridgeToken", remote?.second ?: "android-local-native")
                 .put("sandboxMode", sandboxModes[mode])
                 .put("remote", remote != null)
+                // v47.3: the AI brain may be a remote Render/GitHub sandbox, but the browser,
+                // terminal and picked workspace folder remain physically on this device. Expose
+                // that explicitly so the WebView can route device-owned tools locally instead of
+                // guessing from the bridge URL shape.
+                .put("deviceCapabilities", JSONObject()
+                    .put("browser", true)
+                    .put("terminal", true)
+                    .put("localFiles", true))
                 .put("uwbBridge", JSONObject()
                     .put("running", uwb.optBoolean("running"))
                     .put("port", uwb.optInt("port", 8080))
@@ -2051,6 +2146,7 @@ class MainActivity : Activity() {
                     "/fs/list" -> if (hasSafWorkspace()) safFsList(body.optString("path", activeWorkspacePath()), body.optBoolean("recursive", false)) else localFsList(body.optString("path", ""), body.optBoolean("recursive", false))
                     "/fs/read" -> if (hasSafWorkspace()) safFsRead(body.optString("path", "")) else localFsRead(body.optString("path", ""))
                     "/fs/write" -> if (hasSafWorkspace()) safFsWrite(body.optString("path", ""), body.optString("content", ""), body.optString("b64", "")) else localFsWrite(body.optString("path", ""), body.optString("content", ""), body.optString("b64", ""))
+                    "/fs/editbatch" -> localFsEditBatch(body)
                     "/apk/inspect" -> localApkInspect(body.optString("path", ""))
                     "/apk/extract" -> localApkExtract(body.optString("path", ""), body.optString("destination", ""))
                     "/fs/mkdir" -> if (hasSafWorkspace()) safFsMkdir(body.optString("path", "")) else localFsMkdir(body.optString("path", ""))
@@ -2072,6 +2168,7 @@ class MainActivity : Activity() {
                     "/project/understand" -> localProjectUnderstand()
                     "/project/understand/draft-memory" -> localProjectUnderstandDraft()
                     "/index/status" -> localIndexStatus()
+                    "/index/rename" -> localIndexRename(body)
                     "/index/rebuild" -> localIndexRebuild()
                     "/index/search" -> localIndexSearch(body)
                     "/index/symbols" -> localIndexSymbols(body)

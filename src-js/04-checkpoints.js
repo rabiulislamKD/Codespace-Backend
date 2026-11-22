@@ -24,6 +24,13 @@ async function ensureTurnCheckpoint(label, signal) {
       if ($('cpList')) renderCheckpoints();
       return r;
     })
+    .catch(e => {
+      // v47.4: a checkpoint is a safety net, not a write permission. A stale/misrouted checkpoint
+      // backend must never block file writes (this used to fail every write with "No folder is
+      // open. Open a workspace before using checkpoints."). Warn loudly and continue.
+      cpSay('Checkpoint unavailable (' + (e && e.message ? e.message : e) + '). The change will still be applied; create a checkpoint manually first if you want one.', true);
+      return null;
+    })
     .finally(() => { turnCheckpointPromise = null; });
   return await turnCheckpointPromise;
 }

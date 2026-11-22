@@ -1,7 +1,23 @@
 async function bridgeIsUp(sig) { try { const st = await bcall('/bridge/status', {}, sig); return !!(st && st.connected); } catch { return false; } }
 async function bridgeRun(action, args, sig, timeoutMs) {
-  const r = await bcall('/bridge/call', { action, args: args || {}, timeoutMs }, sig);
+  const body = { action, args: args || {}, timeoutMs };
+  let r = await bcall('/bridge/call', body, sig);
+  // v47.3: /bridge/call is behind the server's browser permission guard. When the policy is
+  // "ask" the server returns a single-use challenge instead of executing the action. Previously
+  // bridgeRun treated that challenge as a successful result, so the model was told a click (or
+  // any other bridge action) ran when it never did. Complete the same handshake bApproved uses.
+  for (let hops = 0; r && r.needsApproval && hops < 4; hops++) {
+    const note = r.note ? String(r.note).trim() : '';
+    const preview = (note ? note + '\n\n' : '') + String(r.preview || '') +
+      (r.permission ? '\n\nPermission: ' + r.permission : '');
+    const okd = await approve('Allow browser action: ' + action + '?', preview, 'browser_bridge',
+      permMeta('site', hostOf((args && args.url) || lastUrl || '')));
+    if (!okd) throw new Error('User denied the browser action: ' + action + '. Nothing was executed.');
+    r = await bcall('/bridge/call', { ...body, approvalToken: r.approvalToken }, sig);
+    if (r && r.needsApproval && hops === 3) throw new Error('The browser approval could not be used (expired, invalid or for a different action). Nothing was executed.');
+  }
   if (!r || r.ok === false) throw new Error((r && r.error) || 'The browser bridge failed.');
+  if (r && r.denied) throw new Error('Blocked by browser permission settings.');
   // Extension bridge wraps in result; local Android bridge returns data directly
   return r.result !== undefined ? r.result : r;
 }
@@ -393,6 +409,10 @@ async function execBridge(call, sig) {
       return clip('Crawled ' + count + ' page(s) from ' + start + ':\n\n' + pageText + errors + (r.truncated ? '\n\n[Result truncated by crawl limits]' : ''));
     }
     case 'web_screenshot': {
+      // v47.3: Android Local has no /web/screenshot endpoint; its implementation lives in the
+      // native CodeSpace Browser branch below. Fall through to it instead of reporting a bogus
+      // success from a server call that never existed.
+      if ((typeof csDeviceBrowserActive === 'function' && csDeviceBrowserActive()) || ANDROID_NATIVE_BROWSER) break;
       const r = await bApproved('/web/screenshot', { url: a.url, full_page: !!a.full_page }, sig, 'Open a website and screenshot it?', 'browser_ext', permMeta('site', hostOf(a.url)));
       if (!r) return DENIED('User denied the screenshot.');
       showPanel(false); bShow(r);
@@ -492,6 +512,9 @@ async function execBridge(call, sig) {
     }
     case 'rename_symbol': {
       if (!await approve('Rename "' + a.symbol + '" to "' + a.new_name + '" across the project?', 'Index-driven text rename with word boundaries. A checkpoint is created first; review the diff afterwards.', 'rename_symbol', permMeta('edit', 'rename ' + a.symbol))) return DENIED('User denied the rename.');
+      // v47.4: the native workspace endpoint cannot create a checkpoint itself. Do it here, using
+      // the same device-routed /checkpoints/create path as the other write tools.
+      await ensureTurnCheckpoint('rename symbol: ' + a.symbol, sig);
       const r = await bApproved('/index/rename', { symbol: a.symbol, new_name: a.new_name }, sig, 'Rename symbol?', 'rename_symbol', permMeta('edit', 'rename ' + a.symbol));
       if (!r) return DENIED('User denied the rename.');
       return { text: clip('Renamed "' + r.symbol + '" → "' + r.newName + '": ' + r.totalReplacements + ' replacement(s)\n' + r.files.map(f => '- ' + f.path + ': ' + (f.skipped ? 'skipped (binary/large)' : f.changed + ' replacement(s)')).join('\n') + '\n' + (r.note || '')), st: 'ok' };
@@ -614,10 +637,14 @@ async function execBridge(call, sig) {
       return clip('Sandboxes (' + r.counts.active + '/' + r.counts.max + ' active):\n' + (r.sandboxes.map(s => '- ' + s.id + ' [' + s.provider + (s.profile ? ' · ' + s.profile : '') + '] ' + s.state + ' · network ' + s.networkPolicy + (s.lastExitCode != null ? ' · last exit ' + s.lastExitCode : '')).join('\n') || '(none yet)'));
     }
   }
-  if (call.name.startsWith('browser_')) {
+  // v47.3: web_screenshot does not start with "browser_" but Android routes it through the same
+  // native CodeSpace Browser implementation as browser_screenshot.
+  const deviceBrowser = (typeof csDeviceBrowserActive === 'function' && csDeviceBrowserActive()) ||
+    !!(typeof ANDROID_NATIVE_BROWSER !== 'undefined' && ANDROID_NATIVE_BROWSER);
+  if (call.name.startsWith('browser_') || (deviceBrowser && call.name === 'web_screenshot')) {
     const hu = S.humanize;
     if (call.name === 'browser_devtools') {
-      if (L.bridgeUrl !== 'codespace-native://local') return 'Native WebView CDP is available only in Android Local mode.';
+      if (!deviceBrowser) return 'Native WebView CDP is available only when the Android device browser is active.';
       const action = String(a.action || 'status');
       if (action === 'enable') {
         if (!await approve('Enable Chrome DevTools Protocol for this Android browser?', 'This opens the app WebView debugging socket so CodeSpace can inspect network traffic, headers, bounded bodies, WebSocket frames and console events. Disconnect when finished.', 'browser_devtools', permMeta('site', hostOf(lastUrl)))) return DENIED('User denied enabling WebView DevTools.');
@@ -643,8 +670,8 @@ async function execBridge(call, sig) {
     // generic extension/Agent-Chrome fallback. Previously they were accidentally nested
     // inside the B310 check, so Android skipped showPanel() and the local page-load wait.
     const ANDROID_LOCAL_CORE = { browser_open: 1, browser_back: 1, browser_forward: 1, browser_reload: 1, browser_read: 1, browser_screenshot: 1, web_screenshot: 1, browser_click: 1, browser_type: 1, browser_scroll: 1, browser_run_js: 1, browser_network: 1, browser_console: 1 };
-    if (B310[call.name] || (L.bridgeUrl === 'codespace-native://local' && ANDROID_LOCAL_CORE[call.name])) {
-      if (L.bridgeUrl === 'codespace-native://local') {
+    if (B310[call.name] || (deviceBrowser && ANDROID_LOCAL_CORE[call.name])) {
+      if (deviceBrowser && ANDROID_NATIVE_BROWSER) {
         if (call.name === 'browser_dom_snapshot') {
           showPanel(false);
           const r = await bridgeRun('dom_snapshot', { max_nodes: a.max_nodes }, sig, 20000);
@@ -748,7 +775,10 @@ async function execBridge(call, sig) {
           const r = await bridgeRun('screenshot', { fullPage: !!a.full_page }, sig, 45000);
           if (!r || !r.url || r.url === 'about:blank') return 'No page is open in the CodeSpace Browser after navigation.';
           lastUrl = r.url;
-          if (P().vision) return { text: 'Screenshot of ' + r.url + ' (title: ' + r.title + ') — CodeSpace Browser page only.', image: r.image };
+          // v47.3: the Android WebView screenshot captures the visible viewport. Say so instead of
+          // letting the model believe full_page was honoured.
+          const fullNote = a.full_page ? ' Full-page capture is not available in the Android embedded browser; the visible page was captured.' : '';
+          if (P().vision) return { text: 'Screenshot of ' + r.url + ' (title: ' + r.title + ') — CodeSpace Browser page only.' + fullNote, image: r.image };
           return 'A CodeSpace Browser screenshot was captured, but this model cannot view images. Use browser_read to inspect the page text and elements.';
         }
         if (call.name === 'browser_screenshot') {
@@ -757,7 +787,8 @@ async function execBridge(call, sig) {
           if (!r || !r.url || r.url === 'about:blank') return 'No page is open in the CodeSpace Browser. Call browser_open with a URL first.';
           if (r.source && r.source !== 'browser') return 'Refused: the screenshot did not come from the CodeSpace Browser page.';
           if (r.url) lastUrl = r.url;
-          if (P().vision) return { text: 'Screenshot of ' + r.url + ' (title: ' + r.title + ') — CodeSpace Browser page only.', image: r.image };
+          const fullNote = a.full_page ? ' Full-page capture is not available in the Android embedded browser; the visible page was captured.' : '';
+          if (P().vision) return { text: 'Screenshot of ' + r.url + ' (title: ' + r.title + ') — CodeSpace Browser page only.' + fullNote, image: r.image };
           return 'A CodeSpace Browser screenshot was captured, but this model cannot view images. Use browser_read to inspect the page text and elements.';
         }
         if (call.name === 'browser_click') {

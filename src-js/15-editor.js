@@ -475,10 +475,21 @@ async function embNetDrain(a) {
    BEHIND the native browser. Every floating element is now listed here, and a MutationObserver
    (installed below) re-evaluates visibility the moment one opens or closes instead of waiting for the
    400 ms audit tick. */
-const BROWSER_OVERLAY_SELECTORS = ['dialog[open]', '#menuDrop:not([hidden])', '#provMenu:not([hidden])', '#permMenu:not([hidden])', '#routeMenu:not([hidden])', '#ctxPop:not([hidden])', '.ctxmenu:not([hidden])', '.mb-drop:not([hidden])', '#codespaceSplash:not([hidden])', '.pop:not([hidden])', '#sideSplit.dragging', '[data-occludes-browser]:not([hidden])'];
+const BROWSER_OVERLAY_SELECTORS = ['dialog[open]', '#menuDrop:not([hidden])', '#provMenu:not([hidden])', '#permMenu:not([hidden])', '#routeMenu:not([hidden])', '#ctxPop:not([hidden])', '.ctxmenu:not([hidden])', '.mb-drop:not([hidden])', '#codespaceSplash:not([hidden])', '.pop:not([hidden])', '.cs-touch-context:not([hidden])', '#sideSplit.dragging', '[data-occludes-browser]:not([hidden])'];
 function browserOverlayOpen() {
   try {
     if (document.body && document.body.classList.contains('cs-dragging')) return true;
+    // v47.3: on phone/tablet the sidebar is an absolutely-positioned drawer. It has a DOM z-index,
+    // but the native browser is a real Android view drawn above every DOM layer, so the drawer
+    // would otherwise appear underneath it.
+    const side = $('side');
+    if (side && getComputedStyle(side).position === 'absolute') {
+      const sr = side.getBoundingClientRect(), bv = $('bview');
+      const br = bv ? visibleBrowserRect(bv) : { x: 0, y: 0, width: 0, height: 0 };
+      if (sr.width > 1 && sr.height > 1 && br.width > 1 && br.height > 1 &&
+          Math.min(sr.right, br.x + br.width) > Math.max(sr.left, br.x) &&
+          Math.min(sr.bottom, br.y + br.height) > Math.max(sr.top, br.y)) return true;
+    }
     for (const sel of BROWSER_OVERLAY_SELECTORS) {
       const el = document.querySelector(sel);
       if (!el) continue;
@@ -518,6 +529,13 @@ function visibleBrowserRect(el) {
   let l = r0.left, t = r0.top, rt = r0.right, b = r0.bottom;
   const clip = (x0, y0, x1, y1) => { l = Math.max(l, x0); t = Math.max(t, y0); rt = Math.min(rt, x1); b = Math.min(b, y1); };
   clip(0, 0, window.innerWidth, window.innerHeight);
+  // v47.3: when the Android soft keyboard resizes/offsets the visual viewport, DOM rects can still
+  // report the full layout viewport. Clip to the visible area so the native WebView never spills
+  // over the keyboard or a zoomed-out edge.
+  if (window.visualViewport) {
+    const vv = window.visualViewport, vx = vv.offsetLeft || 0, vy = vv.offsetTop || 0;
+    clip(vx, vy, vx + vv.width, vy + vv.height);
+  }
   for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
     const cs = getComputedStyle(a);
     if (cs.display === 'none') return { x: l, y: t, width: 0, height: 0 };
@@ -603,6 +621,7 @@ if (DESKTOP_EMBED) {
 if (ANDROID_NATIVE_BROWSER) {
   const sync = () => syncAndroidBrowserBounds();
   window.addEventListener('resize', sync); window.addEventListener('scroll', sync, true);
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', sync); window.visualViewport.addEventListener('scroll', sync); }
   if (window.ResizeObserver) { const ro = new ResizeObserver(sync); ro.observe($('bview')); ro.observe($('bp')); }
   let raf = 0; const soon = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; sync(); }); };
   try { new MutationObserver(soon).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden', 'open', 'class'] }); new MutationObserver(soon).observe(document.body, { childList: true }); } catch {}
