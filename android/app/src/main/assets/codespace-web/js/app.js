@@ -1435,7 +1435,42 @@ function csUpdateBusyHint(b, text) {
   const q = csQueuedCount();
   el.textContent = (text || 'Working…') + (q ? ' · ' + q + ' queued message' + (q > 1 ? 's' : '') : '') + ' · you can keep typing';
 }
-function csRenderQueueHint() { csUpdateBusyHint(csUiBusy, csUiBusy ? ($('ctxHint')?.dataset?.csBusyText || 'Working…') : ''); }
+function csRenderQueueHint() { csUpdateBusyHint(csUiBusy, csUiBusy ? ($('ctxHint')?.dataset?.csBusyText || 'Working…') : ''); csUpdatePrimaryButton(); }
+/* v47.7: one composer button. It is Send when there is text/context to send, and Stop only while a
+   run is active with an empty composer. Typing during a run instantly turns it back into Send. */
+let csPrimaryPreparing = false;
+function csComposerHasContent() {
+  const input = $('input');
+  if (input && String(input.value || '').trim()) return true;
+  try {
+    return !!(pendingFilePaths.length || pendingImages.length || pendingTextFiles.length || pendingElements.length || pendingSelection);
+  } catch { return false; }
+}
+function csPrimaryMode() { return csUiBusy && !csComposerHasContent() ? 'stop' : 'send'; }
+function csUpdatePrimaryButton() {
+  const btn = $('sendBtn'); if (!btn) return;
+  const stop = csPrimaryMode() === 'stop';
+  btn.classList.toggle('stop', stop);
+  const sendIcon = btn.querySelector('.ico-send'), stopIcon = btn.querySelector('.ico-stop');
+  if (sendIcon) sendIcon.hidden = stop;
+  if (stopIcon) stopIcon.hidden = !stop;
+  if (csPrimaryPreparing) { btn.disabled = true; btn.title = 'Preparing request…'; btn.setAttribute('aria-label', 'Preparing request'); return; }
+  btn.disabled = false;
+  if (stop) {
+    const detail = $('ctxHint')?.dataset?.csBusyText || '';
+    btn.title = detail ? 'Stop — ' + detail : 'Stop';
+    btn.setAttribute('aria-label', 'Stop');
+  } else {
+    btn.title = csUiBusy ? 'Queue message' : 'Send message';
+    btn.setAttribute('aria-label', btn.title);
+  }
+}
+function csSetPrimaryPreparing(value) { csPrimaryPreparing = !!value; csUpdatePrimaryButton(); }
+function csStopActiveRun() {
+  CS_QUEUED_MESSAGES.length = 0; csRenderQueueHint();
+  try { if (ctrl) ctrl.abort(); } catch {}
+  try { if ($('appr')?.open) $('appr').close('deny'); } catch {}
+}
 function csQueueMessage(snapshot) {
   CS_QUEUED_MESSAGES.push(snapshot);
   csRenderQueueHint();
@@ -1458,8 +1493,8 @@ function setBusy(b, text) {
   csUiBusy = b;
   csSetAiBackground(b, text);
   if ($('ctxHint')) $('ctxHint').dataset.csBusyText = b ? String(text || 'Working…') : '';
-  // v47.5: keep the composer usable while the agent works. Enter now queues the message.
-  $('sendBtn').hidden = false; $('stopBtn').hidden = !b; $('input').disabled = false;
+  // v47.7: keep the composer usable while the agent works. One button switches between Send and Stop.
+  $('sendBtn').hidden = false; $('input').disabled = false;
   csUpdateBusyHint(b, text);
   if (!b) {
     // v47.3: auto-focusing the composer on a phone raises the soft keyboard over the chat
@@ -7404,6 +7439,7 @@ function renderAttachTray() {
   const box = $('attachTray'); box.innerHTML = '';
   const entries = [ ...pendingFilePaths.map((path, i) => ({ kind: 'file', label: '@' + path, remove: () => pendingFilePaths.splice(i, 1) })), ...pendingImages.map((im, i) => ({ kind: 'image', label: im.name, remove: () => pendingImages.splice(i, 1) })), ...pendingTextFiles.map((f, i) => ({ kind: 'text', label: 'File: ' + f.name, remove: () => pendingTextFiles.splice(i, 1) })), ...pendingElements.map((el, i) => ({ kind: 'element', label: el.kind === 'selection' ? 'Page text · ' + String(el.text || '').slice(0, 28) : '🌐 ' + (el.label || el.tag || 'element'), remove: () => pendingElements.splice(i, 1) })), ...(pendingSelection ? [{ kind: 'selection', label: 'Editor selection (' + pendingSelection.length + ' chars)', remove: () => { pendingSelection = ''; } }] : []) ];
   box.hidden = !entries.length; entries.forEach((x, i) => { const chip = document.createElement('span'); chip.className = 'attachchip'; const label = document.createElement('span'); label.textContent = x.label; const rm = document.createElement('button'); rm.type = 'button'; rm.textContent = '×'; rm.title = 'Remove attachment'; rm.onclick = () => { x.remove(); renderAttachTray(); }; chip.append(label, rm); box.appendChild(chip); });
+  csUpdatePrimaryButton();
 }
 async function addFilesToComposer(files) {
   for (const file of [...(files || [])]) {
@@ -8011,8 +8047,7 @@ async function send(queued) {
   sendPreparing = true;
   startAssistantActivity(S.openCodeCLI ? 'OpenCode CLI' : 'AI assistant', 'Thinking about your request');
   placeActivityBeforeTranscript();
-  $('sendBtn').disabled = true;
-  $('sendBtn').title = 'Preparing request…';
+  csSetPrimaryPreparing(true);
 
   // The transcript shows only what the user typed and short attachment names.
   // Retrieved context and file contents travel separately to the model.
@@ -8030,7 +8065,7 @@ async function send(queued) {
       if (smartContext) contextParts.push(smartContext);
     }
   } catch (e) {
-    sendPreparing = false; $('sendBtn').disabled = false; $('sendBtn').title = '';
+    sendPreparing = false; csSetPrimaryPreparing(false);
     setMultiAgentActivity('assistant', 'failed', 'Failed');
     addErr('Request preparation failed: ' + String(e && e.message || e).slice(0, 500));
     return;
@@ -8063,14 +8098,13 @@ async function send(queued) {
   if (P().vision) for (const el of pendingElements) { if (el.image && imgs.length < 4) imgs.push({ name: (el.label || 'element') + '.jpg', dataUrl: el.image }); }
   pendingFilePaths.length = 0; pendingTextFiles.length = 0; pendingImages.length = 0; pendingElements.length = 0; pendingSelection = ''; renderAttachTray();
   $('input').value = ''; autoSize();
-  sendPreparing = false; $('sendBtn').disabled = false; $('sendBtn').title = '';
+  sendPreparing = false; csSetPrimaryPreparing(false);
   if (S.openCodeCLI) await runOpenCodeChat(userDisplayText, userDisplayText, privateContext);
   else await runAgent(userDisplayText, imgs, privateContext);
 }
-$('sendBtn').onclick = send;
-$('input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
-$('input').addEventListener('input', autoSize);
-$('stopBtn').onclick = () => { CS_QUEUED_MESSAGES.length = 0; csRenderQueueHint(); if (ctrl) ctrl.abort(); if ($('appr').open) $('appr').close('deny'); };
+$('sendBtn').onclick = () => { if (csPrimaryMode() === 'stop') csStopActiveRun(); else send(); };
+$('input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (csPrimaryMode() === 'stop') csStopActiveRun(); else send(); } });
+$('input').addEventListener('input', () => { autoSize(); csUpdatePrimaryButton(); });
 $('sessNew').onclick = newSession;
 $('sessFilter').addEventListener('input', renderSessions);
 // Chat history / compress / new now live in the File menu. Keep shared helpers so the
@@ -8722,7 +8756,7 @@ $('routeMenu').addEventListener('click', e => { const o = e.target.closest('[dat
 document.addEventListener('pointerdown', e => { if (!$('routeWrap').contains(e.target)) closeRouteMenu(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('routeMenu').hidden) { closeRouteMenu(); $('routeBtn').focus(); } });
 /* busy / retry text no longer takes space in the composer; it stays available as the Stop button's tooltip */
-try { new MutationObserver(() => { const t = $('ctxHint').textContent; $('stopBtn').title = t ? 'Stop — ' + t : 'Stop'; }).observe($('ctxHint'), { childList: true, characterData: true, subtree: true }); } catch {}
+try { new MutationObserver(() => csUpdatePrimaryButton()).observe($('ctxHint'), { childList: true, characterData: true, subtree: true }); } catch {}
 
 $('modeSel').onchange = e => { S.agentOn = e.target.value !== 'ask'; S.multiAgent = e.target.value === 'multi'; S.updated = Date.now(); saveLocal(); updateMeters(); if (B.ok) pushConfig(); };
 
@@ -9397,7 +9431,7 @@ if (typeof refreshOpenCodeStatus === 'function') setTimeout(() => { refreshOpenC
     cmd.value = runner + ' ' + q;
     cmd.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   }
-  const stopRun = () => { const s = $('stopBtn'); if (s && !s.hidden) s.click(); else addNote('Nothing is running.'); };
+  const stopRun = () => { if (csUiBusy) csStopActiveRun(); else addNote('Nothing is running.'); };
   async function oneClickRepair() {
     if (typeof ctrl !== 'undefined' && ctrl) { addNote('An agent task is already running.'); return; }
     const prompt = `ONE-CLICK CODESPACE REPAIR. The user deliberately started this workflow from Run > Repair CodeSpace. Begin immediately; do not ask the user to describe the problem first.

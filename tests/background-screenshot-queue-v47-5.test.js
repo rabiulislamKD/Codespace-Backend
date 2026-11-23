@@ -59,7 +59,7 @@ test('[4] screenshots use DevTools first and validate pixels before accepting a 
 
 test('[5] the composer stays usable during a run', () => {
   assert.match(metersSrc, /function csSetAiBackground\(/);
-  assert.match(metersSrc, /\$\('sendBtn'\)\.hidden = false;.*\$\('stopBtn'\)\.hidden = !b;.*\$\('input'\)\.disabled = false;/);
+  assert.match(metersSrc, /\$\('sendBtn'\)\.hidden = false;.*\$\('input'\)\.disabled = false;/);
   assert.match(metersSrc, /csFlushQueuedMessages\(\);/);
 });
 
@@ -70,7 +70,7 @@ test('[6] messages sent during a run are queued in order and flushed afterwards'
   assert.match(composerSrc, /if \(ctrl \|\| sendPreparing \|\| \(typeof ocRunActive/);
   assert.match(composerSrc, /csQueueMessage\(\{/);
   assert.match(metersSrc, /await send\(next\)/);
-  assert.match(composerSrc, /CS_QUEUED_MESSAGES\.length = 0; csRenderQueueHint\(\)/);
+  assert.match(metersSrc, /function csStopActiveRun\(\)[\s\S]{0,160}CS_QUEUED_MESSAGES\.length = 0; csRenderQueueHint\(\)/);
 });
 
 test('[7] remote sandbox screenshots fall back between device, sandbox and browser bridge', () => {

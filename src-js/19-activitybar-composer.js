@@ -76,6 +76,7 @@ function renderAttachTray() {
   const box = $('attachTray'); box.innerHTML = '';
   const entries = [ ...pendingFilePaths.map((path, i) => ({ kind: 'file', label: '@' + path, remove: () => pendingFilePaths.splice(i, 1) })), ...pendingImages.map((im, i) => ({ kind: 'image', label: im.name, remove: () => pendingImages.splice(i, 1) })), ...pendingTextFiles.map((f, i) => ({ kind: 'text', label: 'File: ' + f.name, remove: () => pendingTextFiles.splice(i, 1) })), ...pendingElements.map((el, i) => ({ kind: 'element', label: el.kind === 'selection' ? 'Page text · ' + String(el.text || '').slice(0, 28) : '🌐 ' + (el.label || el.tag || 'element'), remove: () => pendingElements.splice(i, 1) })), ...(pendingSelection ? [{ kind: 'selection', label: 'Editor selection (' + pendingSelection.length + ' chars)', remove: () => { pendingSelection = ''; } }] : []) ];
   box.hidden = !entries.length; entries.forEach((x, i) => { const chip = document.createElement('span'); chip.className = 'attachchip'; const label = document.createElement('span'); label.textContent = x.label; const rm = document.createElement('button'); rm.type = 'button'; rm.textContent = '×'; rm.title = 'Remove attachment'; rm.onclick = () => { x.remove(); renderAttachTray(); }; chip.append(label, rm); box.appendChild(chip); });
+  csUpdatePrimaryButton();
 }
 async function addFilesToComposer(files) {
   for (const file of [...(files || [])]) {
@@ -683,8 +684,7 @@ async function send(queued) {
   sendPreparing = true;
   startAssistantActivity(S.openCodeCLI ? 'OpenCode CLI' : 'AI assistant', 'Thinking about your request');
   placeActivityBeforeTranscript();
-  $('sendBtn').disabled = true;
-  $('sendBtn').title = 'Preparing request…';
+  csSetPrimaryPreparing(true);
 
   // The transcript shows only what the user typed and short attachment names.
   // Retrieved context and file contents travel separately to the model.
@@ -702,7 +702,7 @@ async function send(queued) {
       if (smartContext) contextParts.push(smartContext);
     }
   } catch (e) {
-    sendPreparing = false; $('sendBtn').disabled = false; $('sendBtn').title = '';
+    sendPreparing = false; csSetPrimaryPreparing(false);
     setMultiAgentActivity('assistant', 'failed', 'Failed');
     addErr('Request preparation failed: ' + String(e && e.message || e).slice(0, 500));
     return;
@@ -735,14 +735,13 @@ async function send(queued) {
   if (P().vision) for (const el of pendingElements) { if (el.image && imgs.length < 4) imgs.push({ name: (el.label || 'element') + '.jpg', dataUrl: el.image }); }
   pendingFilePaths.length = 0; pendingTextFiles.length = 0; pendingImages.length = 0; pendingElements.length = 0; pendingSelection = ''; renderAttachTray();
   $('input').value = ''; autoSize();
-  sendPreparing = false; $('sendBtn').disabled = false; $('sendBtn').title = '';
+  sendPreparing = false; csSetPrimaryPreparing(false);
   if (S.openCodeCLI) await runOpenCodeChat(userDisplayText, userDisplayText, privateContext);
   else await runAgent(userDisplayText, imgs, privateContext);
 }
-$('sendBtn').onclick = send;
-$('input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
-$('input').addEventListener('input', autoSize);
-$('stopBtn').onclick = () => { CS_QUEUED_MESSAGES.length = 0; csRenderQueueHint(); if (ctrl) ctrl.abort(); if ($('appr').open) $('appr').close('deny'); };
+$('sendBtn').onclick = () => { if (csPrimaryMode() === 'stop') csStopActiveRun(); else send(); };
+$('input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (csPrimaryMode() === 'stop') csStopActiveRun(); else send(); } });
+$('input').addEventListener('input', () => { autoSize(); csUpdatePrimaryButton(); });
 $('sessNew').onclick = newSession;
 $('sessFilter').addEventListener('input', renderSessions);
 // Chat history / compress / new now live in the File menu. Keep shared helpers so the
@@ -1394,7 +1393,7 @@ $('routeMenu').addEventListener('click', e => { const o = e.target.closest('[dat
 document.addEventListener('pointerdown', e => { if (!$('routeWrap').contains(e.target)) closeRouteMenu(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('routeMenu').hidden) { closeRouteMenu(); $('routeBtn').focus(); } });
 /* busy / retry text no longer takes space in the composer; it stays available as the Stop button's tooltip */
-try { new MutationObserver(() => { const t = $('ctxHint').textContent; $('stopBtn').title = t ? 'Stop — ' + t : 'Stop'; }).observe($('ctxHint'), { childList: true, characterData: true, subtree: true }); } catch {}
+try { new MutationObserver(() => csUpdatePrimaryButton()).observe($('ctxHint'), { childList: true, characterData: true, subtree: true }); } catch {}
 
 $('modeSel').onchange = e => { S.agentOn = e.target.value !== 'ask'; S.multiAgent = e.target.value === 'multi'; S.updated = Date.now(); saveLocal(); updateMeters(); if (B.ok) pushConfig(); };
 

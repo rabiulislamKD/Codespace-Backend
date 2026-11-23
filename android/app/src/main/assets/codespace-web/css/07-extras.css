@@ -77,9 +77,10 @@ html[data-theme="dark"]{color-scheme:dark}
 .sendSlot #sendBtn{background:linear-gradient(145deg,var(--accent),color-mix(in srgb,var(--accent) 80%,#000));color:var(--accent-ink);box-shadow:0 2px 8px color-mix(in srgb,var(--accent) 35%,transparent)}
 .sendSlot #sendBtn:hover{filter:brightness(1.08)}
 .sendSlot #sendBtn:active{transform:scale(.94)}
-.sendSlot #stopBtn{background:var(--err);color:var(--accent-ink)}
-.sendSlot #stopBtn:hover{filter:brightness(1.08)}
-.sendSlot #stopBtn svg{fill:currentColor;stroke:none}
+.sendSlot #sendBtn.stop{background:var(--err);color:var(--accent-ink)}
+.sendSlot #sendBtn.stop:hover{filter:brightness(1.08)}
+.sendSlot #sendBtn svg[hidden]{display:none}
+.sendSlot #sendBtn.stop .ico-stop{fill:currentColor;stroke:none}
 .sendSlot .sbtn:focus-visible,.crow select:focus-visible,.tgl:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 /* Narrow chat pane: controls shrink (model name, status text) but NOTHING is hidden and nothing wraps. */
 @container composer (max-width:430px){.crow select#provQuick{max-width:96px}.crow select#sandboxSel{max-width:94px}.crow select#thinkSel{max-width:88px}.crow #thinkState{max-width:74px}}

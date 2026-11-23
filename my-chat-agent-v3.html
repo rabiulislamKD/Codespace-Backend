@@ -446,9 +446,11 @@
           <button id="ctxRing" class="ring" type="button" aria-label="Context window usage" aria-haspopup="dialog"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle class="rb" cx="12" cy="12" r="9"/><circle id="ctxArc" class="rf" cx="12" cy="12" r="9" transform="rotate(-90 12 12)"/></svg></button>
         </div>
         </div>
-        <div class="sendSlot" aria-label="Message actions">
-          <button id="stopBtn" class="sbtn stop" type="button" title="Stop" aria-label="Stop" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor"/></svg></button>
-          <button id="sendBtn" class="sbtn" type="button" title="Send message" aria-label="Send message"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button>
+        <div class="sendSlot" aria-label="Message action">
+          <button id="sendBtn" class="sbtn" type="button" title="Send message" aria-label="Send message">
+            <svg class="ico-send" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M4 7l4-4 4 4"/></svg>
+            <svg class="ico-stop" viewBox="0 0 16 16" aria-hidden="true" hidden><rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor"/></svg>
+          </button>
         </div>
       </div>
     </div>

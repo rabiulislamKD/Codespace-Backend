@@ -61,7 +61,7 @@
     cmd.value = runner + ' ' + q;
     cmd.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   }
-  const stopRun = () => { const s = $('stopBtn'); if (s && !s.hidden) s.click(); else addNote('Nothing is running.'); };
+  const stopRun = () => { if (csUiBusy) csStopActiveRun(); else addNote('Nothing is running.'); };
   async function oneClickRepair() {
     if (typeof ctrl !== 'undefined' && ctrl) { addNote('An agent task is already running.'); return; }
     const prompt = `ONE-CLICK CODESPACE REPAIR. The user deliberately started this workflow from Run > Repair CodeSpace. Begin immediately; do not ask the user to describe the problem first.

@@ -270,7 +270,42 @@ function csUpdateBusyHint(b, text) {
   const q = csQueuedCount();
   el.textContent = (text || 'Working…') + (q ? ' · ' + q + ' queued message' + (q > 1 ? 's' : '') : '') + ' · you can keep typing';
 }
-function csRenderQueueHint() { csUpdateBusyHint(csUiBusy, csUiBusy ? ($('ctxHint')?.dataset?.csBusyText || 'Working…') : ''); }
+function csRenderQueueHint() { csUpdateBusyHint(csUiBusy, csUiBusy ? ($('ctxHint')?.dataset?.csBusyText || 'Working…') : ''); csUpdatePrimaryButton(); }
+/* v47.7: one composer button. It is Send when there is text/context to send, and Stop only while a
+   run is active with an empty composer. Typing during a run instantly turns it back into Send. */
+let csPrimaryPreparing = false;
+function csComposerHasContent() {
+  const input = $('input');
+  if (input && String(input.value || '').trim()) return true;
+  try {
+    return !!(pendingFilePaths.length || pendingImages.length || pendingTextFiles.length || pendingElements.length || pendingSelection);
+  } catch { return false; }
+}
+function csPrimaryMode() { return csUiBusy && !csComposerHasContent() ? 'stop' : 'send'; }
+function csUpdatePrimaryButton() {
+  const btn = $('sendBtn'); if (!btn) return;
+  const stop = csPrimaryMode() === 'stop';
+  btn.classList.toggle('stop', stop);
+  const sendIcon = btn.querySelector('.ico-send'), stopIcon = btn.querySelector('.ico-stop');
+  if (sendIcon) sendIcon.hidden = stop;
+  if (stopIcon) stopIcon.hidden = !stop;
+  if (csPrimaryPreparing) { btn.disabled = true; btn.title = 'Preparing request…'; btn.setAttribute('aria-label', 'Preparing request'); return; }
+  btn.disabled = false;
+  if (stop) {
+    const detail = $('ctxHint')?.dataset?.csBusyText || '';
+    btn.title = detail ? 'Stop — ' + detail : 'Stop';
+    btn.setAttribute('aria-label', 'Stop');
+  } else {
+    btn.title = csUiBusy ? 'Queue message' : 'Send message';
+    btn.setAttribute('aria-label', btn.title);
+  }
+}
+function csSetPrimaryPreparing(value) { csPrimaryPreparing = !!value; csUpdatePrimaryButton(); }
+function csStopActiveRun() {
+  CS_QUEUED_MESSAGES.length = 0; csRenderQueueHint();
+  try { if (ctrl) ctrl.abort(); } catch {}
+  try { if ($('appr')?.open) $('appr').close('deny'); } catch {}
+}
 function csQueueMessage(snapshot) {
   CS_QUEUED_MESSAGES.push(snapshot);
   csRenderQueueHint();
@@ -293,8 +328,8 @@ function setBusy(b, text) {
   csUiBusy = b;
   csSetAiBackground(b, text);
   if ($('ctxHint')) $('ctxHint').dataset.csBusyText = b ? String(text || 'Working…') : '';
-  // v47.5: keep the composer usable while the agent works. Enter now queues the message.
-  $('sendBtn').hidden = false; $('stopBtn').hidden = !b; $('input').disabled = false;
+  // v47.7: keep the composer usable while the agent works. One button switches between Send and Stop.
+  $('sendBtn').hidden = false; $('input').disabled = false;
   csUpdateBusyHint(b, text);
   if (!b) {
     // v47.3: auto-focusing the composer on a phone raises the soft keyboard over the chat
