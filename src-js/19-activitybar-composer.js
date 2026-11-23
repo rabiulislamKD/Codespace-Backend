@@ -642,8 +642,35 @@ async function runOpenCodeChat(text, userDisplayText = text, privateContext = ''
 }
 
 let sendPreparing = false;
-async function send() {
-  const v = $('input').value.trim(); if ((!v && !pendingFilePaths.length && !pendingImages.length && !pendingTextFiles.length && !pendingSelection && !pendingElements.length) || ctrl || sendPreparing) return;
+async function send(queued) {
+  if (queued) {
+    // A queued message replays the exact composer state captured when the user pressed Send.
+    pendingFilePaths.splice(0, pendingFilePaths.length, ...(queued.files || []));
+    pendingTextFiles.splice(0, pendingTextFiles.length, ...(queued.textFiles || []));
+    pendingImages.splice(0, pendingImages.length, ...(queued.images || []));
+    pendingElements.splice(0, pendingElements.length, ...(queued.elements || []));
+    pendingSelection = queued.selection || '';
+    $('input').value = queued.text || '';
+  }
+  const v = $('input').value.trim();
+  const hasContent = !!(v || pendingFilePaths.length || pendingImages.length || pendingTextFiles.length || pendingSelection || pendingElements.length);
+  if (!hasContent) return;
+  if (ctrl || sendPreparing || (typeof ocRunActive !== 'undefined' && ocRunActive)) {
+    // v47.5: never drop a user message while an agent turn is live. Queue it in order and let the
+    // next setBusy(false) dispatch it automatically. The Stop button still clears the queue.
+    csQueueMessage({
+      text: $('input').value,
+      files: pendingFilePaths.slice(),
+      textFiles: pendingTextFiles.map(x => ({ ...x })),
+      images: pendingImages.map(x => ({ ...x })),
+      elements: pendingElements.map(x => ({ ...x })),
+      selection: pendingSelection || ''
+    });
+    $('input').value = ''; autoSize();
+    pendingFilePaths.length = 0; pendingTextFiles.length = 0; pendingImages.length = 0; pendingElements.length = 0; pendingSelection = '';
+    renderAttachTray();
+    return;
+  }
   // OpenCode CLI mode is now genuinely supported on Android Local (real CLI process). The
   // runOpenCodeChat() entry point re-checks the real status and reports a clear setup error if
   // the CLI is unavailable — it never silently switches providers.
@@ -715,7 +742,7 @@ async function send() {
 $('sendBtn').onclick = send;
 $('input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 $('input').addEventListener('input', autoSize);
-$('stopBtn').onclick = () => { if (ctrl) ctrl.abort(); if ($('appr').open) $('appr').close('deny'); };
+$('stopBtn').onclick = () => { CS_QUEUED_MESSAGES.length = 0; csRenderQueueHint(); if (ctrl) ctrl.abort(); if ($('appr').open) $('appr').close('deny'); };
 $('sessNew').onclick = newSession;
 $('sessFilter').addEventListener('input', renderSessions);
 // Chat history / compress / new now live in the File menu. Keep shared helpers so the

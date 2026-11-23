@@ -299,7 +299,7 @@ async function csNativeCall(pathname, body, signal) {
 // v47.4: checkpoints, batch edits and the code index are workspace-owned too. When an Android
 // folder is active they must be served by the device adapter even if the AI brain is a remote
 // sandbox — otherwise every write fails at ensureTurnCheckpoint() with "No folder is open".
-const CS_LOCAL_FILE_EP = /^\/(info|workspace\/(dirs|state|active)|fs\/(list|read|write|create|mkdir|rename|delete|search|stat|metadata|stream|history|undo|redo|editbatch)|checkpoints\/(create|list|compare|restore|delete)|index\/(status|rebuild|search|symbols|references|related|map|rename))$/;
+const CS_LOCAL_FILE_EP = /^\/(info|ai\/background|workspace\/(dirs|state|active)|fs\/(list|read|write|create|mkdir|rename|delete|search|stat|metadata|stream|history|undo|redo|editbatch)|checkpoints\/(create|list|compare|restore|delete)|index\/(status|rebuild|search|symbols|references|related|map|rename))$/;
 // OpenCode CLI is a device-local runtime on Android: its status/keys/models/workspace/run must
 // NEVER be sent to the remote Render/Codespace server (which has no Android folder and no
 // /opencode/keys/* endpoints -> "Unknown endpoint"). All of these are served by the native bridge.
@@ -1413,9 +1413,54 @@ function closeModelMenu() {
   if (!modelMenu || modelMenu.hidden) return;
   modelMenu.hidden = true; modelBtn.setAttribute('aria-expanded', 'false');
 }
+/* v47.5: an active turn owns an Android foreground service + wake lock, and further user
+   messages are queued instead of being silently dropped by the composer's single-flight guard. */
+const CS_QUEUED_MESSAGES = [];
+let csUiBusy = false, csQueueFlushing = false, csAiBgActive = false;
+function csQueuedCount() { return CS_QUEUED_MESSAGES.length; }
+function csSetAiBackground(active, label) {
+  if (csAiBgActive === active) return;
+  csAiBgActive = active;
+  try {
+    if (window.CodeSpaceNative && typeof window.CodeSpaceNative.setAiBackground === 'function') {
+      window.CodeSpaceNative.setAiBackground(!!active, String(label || ''));
+    } else if (typeof bcall === 'function') {
+      bcall('/ai/background', { active: !!active, label: String(label || '').slice(0, 120) }).catch(() => {});
+    }
+  } catch (_) {}
+}
+function csUpdateBusyHint(b, text) {
+  const el = $('ctxHint'); if (!el) return;
+  if (!b) { el.textContent = ''; return; }
+  const q = csQueuedCount();
+  el.textContent = (text || 'Working…') + (q ? ' · ' + q + ' queued message' + (q > 1 ? 's' : '') : '') + ' · you can keep typing';
+}
+function csRenderQueueHint() { csUpdateBusyHint(csUiBusy, csUiBusy ? ($('ctxHint')?.dataset?.csBusyText || 'Working…') : ''); }
+function csQueueMessage(snapshot) {
+  CS_QUEUED_MESSAGES.push(snapshot);
+  csRenderQueueHint();
+  return CS_QUEUED_MESSAGES.length;
+}
+async function csFlushQueuedMessages() {
+  if (csQueueFlushing || ctrl || sendPreparing || (typeof ocRunActive !== 'undefined' && ocRunActive)) return;
+  csQueueFlushing = true;
+  try {
+    while (CS_QUEUED_MESSAGES.length && !ctrl && !sendPreparing && !(typeof ocRunActive !== 'undefined' && ocRunActive)) {
+      const next = CS_QUEUED_MESSAGES.shift();
+      csRenderQueueHint();
+      try { await send(next); }
+      catch (e) { addErr('Queued message failed: ' + String(e && e.message || e).slice(0, 500)); }
+    }
+  } finally { csQueueFlushing = false; csRenderQueueHint(); }
+}
 function setBusy(b, text) {
-  $('sendBtn').hidden = b; $('stopBtn').hidden = !b; $('input').disabled = b;
-  $('ctxHint').textContent = b ? (text || 'Working…') : '';
+  b = !!b;
+  csUiBusy = b;
+  csSetAiBackground(b, text);
+  if ($('ctxHint')) $('ctxHint').dataset.csBusyText = b ? String(text || 'Working…') : '';
+  // v47.5: keep the composer usable while the agent works. Enter now queues the message.
+  $('sendBtn').hidden = false; $('stopBtn').hidden = !b; $('input').disabled = false;
+  csUpdateBusyHint(b, text);
   if (!b) {
     // v47.3: auto-focusing the composer on a phone raises the soft keyboard over the chat
     // (including at startup and after every turn). Only desktop/fine pointers get auto-focus.
@@ -1423,6 +1468,7 @@ function setBusy(b, text) {
     try { coarse = (navigator.maxTouchPoints || 0) > 0 || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); } catch {}
     if (!coarse) $('input').focus();
     updateMeters();
+    csFlushQueuedMessages();
   }
 }
 
@@ -2037,7 +2083,7 @@ async function execBrowserBridge(call, a, sig) {
       return (r.tabs && r.tabs.length) ? r.tabs.map(t => (t.current ? '* ' : '  ') + 'id ' + t.id + ' | ' + t.title + ' | ' + t.url).join('\n') + '\n(* = tab the browser_* tools act on)' : 'No tabs are available to the agent yet. Use browser_open, or ask the user to press "Share this tab" in the CodeSpace Bridge extension.';
     }
     case 'browser_screenshot': {
-      const r = await bridgeRun('screenshot', {}, sig, 45000);
+      const r = await bridgeRun('screenshot', {}, sig, 60000);
       if (P().vision) return { text: 'Screenshot of ' + r.url + ' (title: ' + r.title + ').', image: r.image };
       return 'A screenshot was captured, but this model cannot view images. Use browser_read to inspect the page text and elements.';
     }
@@ -2408,7 +2454,16 @@ async function execBridge(call, sig) {
       // native CodeSpace Browser branch below. Fall through to it instead of reporting a bogus
       // success from a server call that never existed.
       if ((typeof csDeviceBrowserActive === 'function' && csDeviceBrowserActive()) || ANDROID_NATIVE_BROWSER) break;
-      const r = await bApproved('/web/screenshot', { url: a.url, full_page: !!a.full_page }, sig, 'Open a website and screenshot it?', 'browser_ext', permMeta('site', hostOf(a.url)));
+      let r = null, serverError = '';
+      try {
+        r = await bApproved('/web/screenshot', { url: a.url, full_page: !!a.full_page }, sig, 'Open a website and screenshot it?', 'browser_ext', permMeta('site', hostOf(a.url)));
+      } catch (e) {
+        serverError = String(e && e.message || e).slice(0, 400);
+        // v47.5: if the sandbox browser is unavailable, use the connected Chrome extension.
+        try { r = await bridgeRun('screenshot', {}, sig, 60000); }
+        catch (e2) { return 'Screenshot failed in the remote sandbox' + (serverError ? ': ' + serverError : '') +
+          (e2 ? ' and in the connected browser: ' + String(e2 && e2.message || e2).slice(0, 400) : '') + '.'; }
+      }
       if (!r) return DENIED('User denied the screenshot.');
       showPanel(false); bShow(r);
       if (P().vision && r.image) return { text: 'Screenshot of ' + (r.url || a.url) + ' (title: ' + r.title + ').', image: r.image };
@@ -2760,15 +2815,34 @@ async function execBridge(call, sig) {
             await new Promise(resolve => setTimeout(resolve, 80));
             syncAndroidBrowserBounds();
           }
-          const opened = await bridgeRun('open', { url }, sig, 60000);
-          lastUrl = opened.url || url;
-          if (ANDROID_NATIVE_BROWSER) {
-            await new Promise(resolve => setTimeout(resolve, 180));
-            syncAndroidBrowserBounds();
-            await new Promise(resolve => setTimeout(resolve, 180));
+          let r = null, deviceError = '';
+          try {
+            const opened = await bridgeRun('open', { url }, sig, 60000);
+            lastUrl = opened.url || url;
+            if (ANDROID_NATIVE_BROWSER) {
+              await new Promise(resolve => setTimeout(resolve, 180));
+              syncAndroidBrowserBounds();
+              await new Promise(resolve => setTimeout(resolve, 180));
+            }
+            r = await bridgeRun('screenshot', { fullPage: !!a.full_page }, sig, 60000);
+          } catch (e) {
+            deviceError = String(e && e.message || e).slice(0, 400);
           }
-          const r = await bridgeRun('screenshot', { fullPage: !!a.full_page }, sig, 45000);
-          if (!r || !r.url || r.url === 'about:blank') return 'No page is open in the CodeSpace Browser after navigation.';
+          // v47.5: in a remote sandbox the server-side browser is still available. If the device
+          // capture path fails (e.g. debugging socket unavailable), fall back to the sandbox so the
+          // AI can always return a screenshot instead of a blank/failed tool result.
+          if ((!r || !r.image || r.url === 'about:blank') && B.ok && !sig?.aborted) {
+            try {
+              const remote = await bApproved('/web/screenshot', { url, full_page: !!a.full_page }, sig,
+                'Device screenshot failed. Capture the page in the remote sandbox instead?',
+                'browser_ext', permMeta('site', hostOf(url)));
+              if (remote && remote.image) { r = remote; deviceError = ''; }
+            } catch (e2) {
+              deviceError += (deviceError ? ' · ' : '') + String(e2 && e2.message || e2).slice(0, 400);
+            }
+          }
+          if (!r || !r.url || r.url === 'about:blank') return 'No page is open after navigation' + (deviceError ? ' (device screenshot: ' + deviceError + ')' : '') + '.';
+          if (r.image) { showPanel(false); bShow(r); }
           lastUrl = r.url;
           // v47.3: the Android WebView screenshot captures the visible viewport. Say so instead of
           // letting the model believe full_page was honoured.
@@ -2778,9 +2852,10 @@ async function execBridge(call, sig) {
         }
         if (call.name === 'browser_screenshot') {
           showPanel(true);
-          const r = await bridgeRun('screenshot', { fullPage: !!a.full_page }, sig, 45000);
+          const r = await bridgeRun('screenshot', { fullPage: !!a.full_page }, sig, 60000);
           if (!r || !r.url || r.url === 'about:blank') return 'No page is open in the CodeSpace Browser. Call browser_open with a URL first.';
-          if (r.source && r.source !== 'browser') return 'Refused: the screenshot did not come from the CodeSpace Browser page.';
+          // v47.5: CDP and forced-visible View capture are both still browser-page captures.
+          if (r.source && !['browser', 'cdp', 'browser-draw'].includes(r.source)) return 'Refused: the screenshot did not come from the CodeSpace Browser page.';
           if (r.url) lastUrl = r.url;
           const fullNote = a.full_page ? ' Full-page capture is not available in the Android embedded browser; the visible page was captured.' : '';
           if (P().vision) return { text: 'Screenshot of ' + r.url + ' (title: ' + r.title + ') — CodeSpace Browser page only.' + fullNote, image: r.image };
@@ -7844,8 +7919,35 @@ async function runOpenCodeChat(text, userDisplayText = text, privateContext = ''
 }
 
 let sendPreparing = false;
-async function send() {
-  const v = $('input').value.trim(); if ((!v && !pendingFilePaths.length && !pendingImages.length && !pendingTextFiles.length && !pendingSelection && !pendingElements.length) || ctrl || sendPreparing) return;
+async function send(queued) {
+  if (queued) {
+    // A queued message replays the exact composer state captured when the user pressed Send.
+    pendingFilePaths.splice(0, pendingFilePaths.length, ...(queued.files || []));
+    pendingTextFiles.splice(0, pendingTextFiles.length, ...(queued.textFiles || []));
+    pendingImages.splice(0, pendingImages.length, ...(queued.images || []));
+    pendingElements.splice(0, pendingElements.length, ...(queued.elements || []));
+    pendingSelection = queued.selection || '';
+    $('input').value = queued.text || '';
+  }
+  const v = $('input').value.trim();
+  const hasContent = !!(v || pendingFilePaths.length || pendingImages.length || pendingTextFiles.length || pendingSelection || pendingElements.length);
+  if (!hasContent) return;
+  if (ctrl || sendPreparing || (typeof ocRunActive !== 'undefined' && ocRunActive)) {
+    // v47.5: never drop a user message while an agent turn is live. Queue it in order and let the
+    // next setBusy(false) dispatch it automatically. The Stop button still clears the queue.
+    csQueueMessage({
+      text: $('input').value,
+      files: pendingFilePaths.slice(),
+      textFiles: pendingTextFiles.map(x => ({ ...x })),
+      images: pendingImages.map(x => ({ ...x })),
+      elements: pendingElements.map(x => ({ ...x })),
+      selection: pendingSelection || ''
+    });
+    $('input').value = ''; autoSize();
+    pendingFilePaths.length = 0; pendingTextFiles.length = 0; pendingImages.length = 0; pendingElements.length = 0; pendingSelection = '';
+    renderAttachTray();
+    return;
+  }
   // OpenCode CLI mode is now genuinely supported on Android Local (real CLI process). The
   // runOpenCodeChat() entry point re-checks the real status and reports a clear setup error if
   // the CLI is unavailable — it never silently switches providers.
@@ -7917,7 +8019,7 @@ async function send() {
 $('sendBtn').onclick = send;
 $('input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 $('input').addEventListener('input', autoSize);
-$('stopBtn').onclick = () => { if (ctrl) ctrl.abort(); if ($('appr').open) $('appr').close('deny'); };
+$('stopBtn').onclick = () => { CS_QUEUED_MESSAGES.length = 0; csRenderQueueHint(); if (ctrl) ctrl.abort(); if ($('appr').open) $('appr').close('deny'); };
 $('sessNew').onclick = newSession;
 $('sessFilter').addEventListener('input', renderSessions);
 // Chat history / compress / new now live in the File menu. Keep shared helpers so the

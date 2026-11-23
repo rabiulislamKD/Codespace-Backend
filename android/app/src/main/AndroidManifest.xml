@@ -1,0 +1,43 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- Required by Termux to accept com.termux.RUN_COMMAND requests from this app. Without
+         this declaration Android Settings never shows the permission and Termux rejects calls. -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <!-- Android 11+ package visibility: without <queries> the system filters com.termux out of
+         PackageManager, so detection wrongly reports "Termux not installed". -->
+    <queries>
+        <package android:name="com.termux" />
+    </queries>
+    <application android:name=".CodeSpaceApplication" android:extractNativeLibs="true" android:allowBackup="true" android:label="CodeSpace" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true" android:hardwareAccelerated="true">
+        <service android:name=".NodeRuntimeService" android:exported="false"
+            android:process=":node_runtime" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Run user-started local Node.js development scripts and servers on device" />
+        </service>
+        <service android:name=".UWBBridgeService" android:exported="false"
+            android:foregroundServiceType="dataSync">
+            <property android:name="android.app.PROPERTY_DATA_SYNC_FGS_SUBTYPE"
+                android:value="Universal Workspace Bridge - sync Android files with remote AI agents" />
+        </service>
+        <!-- v47.5: keeps the app process and CPU alive while an AI turn is running, including when
+             the screen is off or the user switches to another app. It does not replace Termux. -->
+        <service android:name=".AiRuntimeService" android:exported="false"
+            android:foregroundServiceType="dataSync">
+            <property android:name="android.app.PROPERTY_DATA_SYNC_FGS_SUBTYPE"
+                android:value="Keep an active CodeSpace AI agent turn running in the background" />
+        </service>
+        <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize" android:exported="true"
+            android:windowSoftInputMode="adjustResize|stateHidden">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity>
+    </application>
+</manifest>

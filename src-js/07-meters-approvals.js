@@ -248,9 +248,54 @@ function closeModelMenu() {
   if (!modelMenu || modelMenu.hidden) return;
   modelMenu.hidden = true; modelBtn.setAttribute('aria-expanded', 'false');
 }
+/* v47.5: an active turn owns an Android foreground service + wake lock, and further user
+   messages are queued instead of being silently dropped by the composer's single-flight guard. */
+const CS_QUEUED_MESSAGES = [];
+let csUiBusy = false, csQueueFlushing = false, csAiBgActive = false;
+function csQueuedCount() { return CS_QUEUED_MESSAGES.length; }
+function csSetAiBackground(active, label) {
+  if (csAiBgActive === active) return;
+  csAiBgActive = active;
+  try {
+    if (window.CodeSpaceNative && typeof window.CodeSpaceNative.setAiBackground === 'function') {
+      window.CodeSpaceNative.setAiBackground(!!active, String(label || ''));
+    } else if (typeof bcall === 'function') {
+      bcall('/ai/background', { active: !!active, label: String(label || '').slice(0, 120) }).catch(() => {});
+    }
+  } catch (_) {}
+}
+function csUpdateBusyHint(b, text) {
+  const el = $('ctxHint'); if (!el) return;
+  if (!b) { el.textContent = ''; return; }
+  const q = csQueuedCount();
+  el.textContent = (text || 'Working…') + (q ? ' · ' + q + ' queued message' + (q > 1 ? 's' : '') : '') + ' · you can keep typing';
+}
+function csRenderQueueHint() { csUpdateBusyHint(csUiBusy, csUiBusy ? ($('ctxHint')?.dataset?.csBusyText || 'Working…') : ''); }
+function csQueueMessage(snapshot) {
+  CS_QUEUED_MESSAGES.push(snapshot);
+  csRenderQueueHint();
+  return CS_QUEUED_MESSAGES.length;
+}
+async function csFlushQueuedMessages() {
+  if (csQueueFlushing || ctrl || sendPreparing || (typeof ocRunActive !== 'undefined' && ocRunActive)) return;
+  csQueueFlushing = true;
+  try {
+    while (CS_QUEUED_MESSAGES.length && !ctrl && !sendPreparing && !(typeof ocRunActive !== 'undefined' && ocRunActive)) {
+      const next = CS_QUEUED_MESSAGES.shift();
+      csRenderQueueHint();
+      try { await send(next); }
+      catch (e) { addErr('Queued message failed: ' + String(e && e.message || e).slice(0, 500)); }
+    }
+  } finally { csQueueFlushing = false; csRenderQueueHint(); }
+}
 function setBusy(b, text) {
-  $('sendBtn').hidden = b; $('stopBtn').hidden = !b; $('input').disabled = b;
-  $('ctxHint').textContent = b ? (text || 'Working…') : '';
+  b = !!b;
+  csUiBusy = b;
+  csSetAiBackground(b, text);
+  if ($('ctxHint')) $('ctxHint').dataset.csBusyText = b ? String(text || 'Working…') : '';
+  // v47.5: keep the composer usable while the agent works. Enter now queues the message.
+  $('sendBtn').hidden = false; $('stopBtn').hidden = !b; $('input').disabled = false;
+  csUpdateBusyHint(b, text);
   if (!b) {
     // v47.3: auto-focusing the composer on a phone raises the soft keyboard over the chat
     // (including at startup and after every turn). Only desktop/fine pointers get auto-focus.
@@ -258,6 +303,7 @@ function setBusy(b, text) {
     try { coarse = (navigator.maxTouchPoints || 0) > 0 || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); } catch {}
     if (!coarse) $('input').focus();
     updateMeters();
+    csFlushQueuedMessages();
   }
 }
 

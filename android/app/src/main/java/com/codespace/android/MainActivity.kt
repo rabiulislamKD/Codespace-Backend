@@ -11,6 +11,7 @@ import android.util.Log
 import android.content.Intent
 import android.net.Uri
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.view.View
 import android.view.ViewGroup
@@ -158,7 +159,12 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashLog.write(this, "startup", "MainActivity.onCreate begin")
-        
+        // v47.5: the background AI service needs the notification visible on Android 13+.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            runCatching { requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 31855) }
+        }
+
         // Start Python initialization on background thread to avoid ANR on slow devices
         pythonExecutor.execute {
             try {
@@ -892,6 +898,101 @@ class MainActivity : Activity() {
         return result.get()
     }
 
+    /* ---------- v47.5: reliable AI browser screenshots ---------- */
+    private fun browserImageHasContent(dataUrl: String): Boolean {
+        val raw = dataUrl.substringAfter("base64,", "")
+        if (raw.length < 200) return false
+        val bytes = try { Base64.decode(raw, Base64.NO_WRAP) } catch (_: Exception) { return false }
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return false
+        return try {
+            val w = bitmap.width; val h = bitmap.height
+            if (w < 2 || h < 2) return false
+            val step = Math.max(1, Math.min(w, h) / 48)
+            var minL = 255; var maxL = 0
+            var y = 0
+            while (y < h) {
+                var x = 0
+                while (x < w) {
+                    val c = bitmap.getPixel(x, y)
+                    val lum = (((c shr 16) and 0xFF) * 299 + ((c shr 8) and 0xFF) * 587 + (c and 0xFF) * 114) / 1000
+                    if (lum < minL) minL = lum
+                    if (lum > maxL) maxL = lum
+                    x += step
+                }
+                y += step
+            }
+            // A white/black/flat frame has almost no luminance spread. Real pages always have some.
+            maxL - minL >= 12
+        } finally { bitmap.recycle() }
+    }
+
+    private fun ensureBrowserCdp(url: String): Boolean {
+        val status = AndroidWebViewCdp.status()
+        val connected = status.optBoolean("enabled")
+        val have = status.optString("url").trim().trimEnd('/').lowercase(java.util.Locale.ROOT)
+        val want = url.trim().trimEnd('/').lowercase(java.util.Locale.ROOT)
+        val sameTarget = have.isNotBlank() && want.isNotBlank() && (have == want || have.contains(want) || want.contains(have))
+        if (connected && sameTarget) return true
+        WebView.setWebContentsDebuggingEnabled(true)
+        repeat(6) {
+            try { AndroidWebViewCdp.connect(url); return true } catch (_: Exception) { Thread.sleep(150) }
+        }
+        return false
+    }
+
+    private fun cdpBrowserScreenshot(url: String): JSONObject? {
+        if (!ensureBrowserCdp(url)) return null
+        val captured = AndroidWebViewCdp.capturePageJpeg(12000)
+        val image = captured.optString("data", "")
+        if (!browserImageHasContent(image)) return null
+        return JSONObject().put("ok", true).put("source", "cdp").put("mimeType", "image/jpeg")
+            .put("url", url).put("title", captured.optString("title", ""))
+            .put("bytes", captured.optInt("bytes", 0)).put("image", image)
+    }
+
+    private fun drawBrowserScreenshot(): JSONObject {
+        val latch = CountDownLatch(1)
+        val result = AtomicReference<JSONObject>(JSONObject().put("ok", false).put("error", "Browser screenshot failed"))
+        runOnUiThread {
+            try {
+                val web = currentBrowser() ?: throw IllegalStateException("No active browser tab")
+                val hostVisibility = browserHost.visibility
+                val tabVisibility = web.visibility
+                // v47.5: a GONE WebView has no compositor frame, so View.draw() returns white.
+                // Make it laid out and visible for one frame, capture, then restore its state.
+                browserHost.visibility = View.VISIBLE
+                web.visibility = View.VISIBLE
+                web.requestLayout(); web.invalidate()
+                web.postDelayed({
+                    try {
+                        val w = web.width.coerceAtLeast(1); val h = web.height.coerceAtLeast(1)
+                        val scale = minOf(1f, 1280f / w, 1280f / h)
+                        val bitmap = Bitmap.createBitmap((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), Bitmap.Config.RGB_565)
+                        val canvas = Canvas(bitmap); canvas.scale(scale, scale); web.draw(canvas)
+                        val out = ByteArrayOutputStream()
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 72, out); bitmap.recycle()
+                        val bytes = out.toByteArray()
+                        require(bytes.size <= 2_000_000) { "Screenshot exceeds 2 MB" }
+                        val image = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        result.set(JSONObject().put("ok", true).put("source", "browser-draw").put("mimeType", "image/jpeg")
+                            .put("url", web.url ?: "").put("title", web.title ?: "").put("image", image))
+                    } catch (e: Exception) {
+                        result.set(JSONObject().put("ok", false).put("error", e.message ?: "Browser screenshot failed"))
+                    } finally {
+                        browserHost.visibility = hostVisibility
+                        web.visibility = tabVisibility
+                        latch.countDown()
+                    }
+                }, 220)
+            } catch (e: Exception) {
+                result.set(JSONObject().put("ok", false).put("error", e.message ?: "Browser screenshot failed"))
+                latch.countDown()
+            }
+        }
+        if (!latch.await(7, TimeUnit.SECONDS)) throw java.util.concurrent.TimeoutException("Screenshot timed out")
+        return result.get()
+    }
+
     private fun localBrowserBridgeCall(body: JSONObject): JSONObject {
         val action = body.optString("action", "").trim()
         val args = body.optJSONObject("args") ?: JSONObject()
@@ -1061,9 +1162,18 @@ class MainActivity : Activity() {
                 return result
             }
             "screenshot" -> {
-                val latch=CountDownLatch(1);val result=AtomicReference<JSONObject>(JSONObject().put("ok",false).put("error","Screenshot failed"))
-                runOnUiThread { try { val web=currentBrowser() ?: throw IllegalStateException("No active browser tab"); val w=web.width.coerceAtLeast(1);val h=web.height.coerceAtLeast(1);val scale=minOf(1f,1280f/w,1280f/h);val bitmap=Bitmap.createBitmap((w*scale).toInt().coerceAtLeast(1),(h*scale).toInt().coerceAtLeast(1),Bitmap.Config.RGB_565);val canvas=Canvas(bitmap);canvas.scale(scale,scale);web.draw(canvas);val out=ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,68,out);bitmap.recycle();val bytes=out.toByteArray();require(bytes.size<=2_000_000){"Screenshot exceeds 2 MB"};result.set(JSONObject().put("ok",true).put("source","browser").put("mimeType","image/jpeg").put("url",web.url?:"").put("title",web.title?:"").put("image","data:image/jpeg;base64,"+Base64.encodeToString(bytes,Base64.NO_WRAP))) } catch(e:Exception){result.set(JSONObject().put("ok",false).put("error",e.message?:"Screenshot failed"))} finally {latch.countDown()} }
-                if(!latch.await(8,TimeUnit.SECONDS))throw java.util.concurrent.TimeoutException("Screenshot timed out");return result.get()
+                // v47.5: DevTools captures the page compositor even when the browser overlay is
+                // hidden. Only if that fails or yields a flat/blank frame do we force the WebView
+                // visible for one frame and use View.draw() as a fallback.
+                val url = lastBrowserUrl
+                val viaCdp = try { cdpBrowserScreenshot(url) } catch (e: Exception) { null }
+                if (viaCdp != null) return viaCdp
+                val drawn = drawBrowserScreenshot()
+                if (drawn.optBoolean("ok") && !browserImageHasContent(drawn.optString("image", ""))) {
+                    return JSONObject().put("ok", false)
+                        .put("error", "Browser screenshot is blank after both DevTools and visible-view capture. Reload the page and retry.")
+                }
+                return drawn
             }
         }
         throw IllegalStateException("Unsupported browser action")
@@ -1793,6 +1903,11 @@ class MainActivity : Activity() {
         @JavascriptInterface fun setBrowserBounds(x: Int, y: Int, width: Int, height: Int, visible: Boolean) {
             setAndroidBrowserBounds(x.coerceIn(0, 10000), y.coerceIn(0, 10000), width.coerceIn(0, 10000), height.coerceIn(0, 10000), visible)
         }
+        // v47.5: called at the start/end of every AI turn. Keeps the app alive in the background.
+        @JavascriptInterface fun setAiBackground(active: Boolean, label: String) {
+            if (active) AiRuntimeService.start(this@MainActivity, label)
+            else AiRuntimeService.stop(this@MainActivity)
+        }
         @JavascriptInterface fun pickWorkspaceFolder() { runOnUiThread { chooseWorkspaceFolder() } }
         @JavascriptInterface fun localWorkspacePath(): String = activeWorkspacePath()
         @JavascriptInterface fun localWrite(path: String, content: String): String {
@@ -2009,6 +2124,12 @@ class MainActivity : Activity() {
                     "/bridge/status" -> JSONObject().put("connected", true).put("mode", "android-webview").put("browser", browserPageOpen()).put("browserTabs", browserTabs.size).put("tabs", browserTabs.size)
                     "/bridge/call" -> localBrowserBridgeCall(body)
                     "/browser/close" -> { closeAllBrowserTabs(); JSONObject().put("ok", true).put("closed", true) }
+                    "/ai/background" -> {
+                        val active = body.optBoolean("active", false)
+                        if (active) AiRuntimeService.start(this@MainActivity, body.optString("label", ""))
+                        else AiRuntimeService.stop(this@MainActivity)
+                        JSONObject().put("ok", true).put("active", active)
+                    }
                     "/info" -> JSONObject()
                         .put("root", activeWorkspacePath())
                         .put("platform", "android")
@@ -5609,6 +5730,7 @@ class MainActivity : Activity() {
         }
     }
     override fun onDestroy() {
+        runCatching { AiRuntimeService.stop(this) }
         if (uwbServiceBound) {
             unbindService(uwbServiceConnection)
             uwbServiceBound = false

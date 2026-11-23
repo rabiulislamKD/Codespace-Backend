@@ -60,7 +60,7 @@ async function csNativeCall(pathname, body, signal) {
 // v47.4: checkpoints, batch edits and the code index are workspace-owned too. When an Android
 // folder is active they must be served by the device adapter even if the AI brain is a remote
 // sandbox — otherwise every write fails at ensureTurnCheckpoint() with "No folder is open".
-const CS_LOCAL_FILE_EP = /^\/(info|workspace\/(dirs|state|active)|fs\/(list|read|write|create|mkdir|rename|delete|search|stat|metadata|stream|history|undo|redo|editbatch)|checkpoints\/(create|list|compare|restore|delete)|index\/(status|rebuild|search|symbols|references|related|map|rename))$/;
+const CS_LOCAL_FILE_EP = /^\/(info|ai\/background|workspace\/(dirs|state|active)|fs\/(list|read|write|create|mkdir|rename|delete|search|stat|metadata|stream|history|undo|redo|editbatch)|checkpoints\/(create|list|compare|restore|delete)|index\/(status|rebuild|search|symbols|references|related|map|rename))$/;
 // OpenCode CLI is a device-local runtime on Android: its status/keys/models/workspace/run must
 // NEVER be sent to the remote Render/Codespace server (which has no Android folder and no
 // /opencode/keys/* endpoints -> "Unknown endpoint"). All of these are served by the native bridge.
