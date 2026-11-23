@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#071a35">
+<meta name="application-name" content="CodeSpace">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CodeSpace">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<title>CodeSpace</title>
+  <link rel="stylesheet" href="css/01-base.css">
+  <link rel="stylesheet" href="css/02-steps.css">
+  <link rel="stylesheet" href="css/03-chat.css">
+  <link rel="stylesheet" href="css/04-editor.css">
+  <link rel="stylesheet" href="css/05-composer-plan.css">
+  <link rel="stylesheet" href="css/06-panels.css">
+  <link rel="stylesheet" href="css/07-extras.css">
+  <link rel="stylesheet" href="css/08-layout.css">
+
+</head>
+<body>
+<div id="codespaceSplash" role="dialog" aria-modal="true" aria-label="CodeSpace startup" tabindex="-1">
+  <div class="cs-splash-inner">
+    <svg class="cs-splash-logo" viewBox="0 0 100 100" role="img" aria-label="CodeSpace logo">
+      <defs><linearGradient id="csLogoGradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#65e2ff"/><stop offset=".52" stop-color="#1e9bff"/><stop offset="1" stop-color="#2764ff"/></linearGradient></defs>
+      <path d="M65 12H35L12 35v30l23 23h30l23-23V35z" fill="rgba(20,100,190,.12)" stroke="url(#csLogoGradient)" stroke-width="5" stroke-linejoin="round"/>
+      <path d="m40 38-12 12 12 12M60 38l12 12-12 12M55 32 45 68" fill="none" stroke="url(#csLogoGradient)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1 class="cs-splash-wordmark">CodeSpace</h1>
+    <div class="cs-splash-welcome"><p>Setup Your Workspace......</p></div>
+    <p class="cs-splash-footer">© CodeSpace · Developer: Rabiul Islam</p>
+    <button id="codespaceEnter" class="cs-splash-enter" type="button">Open CodeSpace</button>
+  </div>
+</div>
+<div id="app" class="nosidebar">
+  <header id="titlebar">
+    <span class="tb-brand" aria-hidden="true"><svg viewBox="0 0 100 100"><defs><linearGradient id="csTbGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#65e2ff"/><stop offset=".52" stop-color="#1e9bff"/><stop offset="1" stop-color="#2764ff"/></linearGradient></defs><path d="M65 12H35L12 35v30l23 23h30l23-23V35z" fill="rgba(20,100,190,.12)" stroke="url(#csTbGrad)" stroke-width="7" stroke-linejoin="round"/><path d="m40 38-12 12 12 12M60 38l12 12-12 12M55 32 45 68" fill="none" stroke="url(#csTbGrad)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    <span class="tb-name">CodeSpace</span>
+    <div class="tb-center"><span id="tbWorkspace">No folder open</span><span class="tb-slash" aria-hidden="true">/</span><span id="tbChat">New chat</span></div>
+    <span class="tb-right"><span id="tbBridge" class="tb-dot" data-state="off" role="img" aria-label="Bridge status"></span><button id="tbSettings" class="tb-btn" type="button" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg></button></span>
+  </header>
+  <nav id="menubar" role="menubar" aria-label="Application menu"><span class="mb-brand" aria-hidden="true"><svg viewBox="0 0 100 100"><defs><linearGradient id="csMbGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#65e2ff"/><stop offset=".52" stop-color="#1e9bff"/><stop offset="1" stop-color="#2764ff"/></linearGradient></defs><path d="M65 12H35L12 35v30l23 23h30l23-23V35z" fill="rgba(20,100,190,.12)" stroke="url(#csMbGrad)" stroke-width="7" stroke-linejoin="round"/><path d="m40 38-12 12 12 12M60 38l12 12-12 12M55 32 45 68" fill="none" stroke="url(#csMbGrad)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg></span></nav>
+  <nav id="chatToolDock" aria-label="Workspace tools">
+    <button type="button" data-tool="folder" title="Open workspace folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Open folder</span></button>
+    <button type="button" data-tool="models" title="Models and providers"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4"/></svg><span>Providers</span></button>
+    <button type="button" data-tool="ext" title="Extensions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4z"/><path d="M16.5 13v7M13 16.5h7"/></svg><span>Extensions</span></button>
+    <button type="button" data-tool="conn" title="Connections: GitHub, Vercel, MySQL"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v5M15 3v5"/><path d="M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v3"/></svg><span>Connections</span></button>
+    <button type="button" data-tool="tools" title="Installed tools"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3 3-3-3z"/><path d="m15 5 4-2 2 2-2 4"/></svg><span>Tools</span></button>
+    <button type="button" data-tool="skills" title="Skills"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/></svg><span>Skills</span></button>
+    <button type="button" data-tool="browser" title="Open browser tab"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><span>Browser</span></button>
+  </nav>
+  <nav id="activity" aria-label="Activity bar">
+    <button class="abtn" data-view="explorer" title="Explorer" aria-label="Explorer"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg></button>
+    <button class="abtn" data-view="git" title="Source control (Git)" aria-label="Source control"><svg viewBox="0 0 24 24"><circle cx="6" cy="5.5" r="2.5"/><circle cx="6" cy="18.5" r="2.5"/><circle cx="18" cy="8.5" r="2.5"/><path d="M6 8v8M18 11c0 4-5 4-11 6.5"/></svg></button>
+    <button class="abtn" data-view="checkpoints" title="Workspace checkpoints" aria-label="Workspace checkpoints"><svg viewBox="0 0 24 24"><path d="M4 7v5h5"/><path d="M5.5 17a8 8 0 1 0-.7-9.5L4 12"/><path d="M12 7v5l3 2"/></svg></button>
+    <button class="abtn" data-view="codebase" title="Codebase intelligence" aria-label="Codebase intelligence"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5M8 9l-2 1.5L8 12M13 9l2 1.5L13 12M11.5 8l-1.5 5"/></svg></button>
+    <button class="abtn" data-view="sessions" title="Chat history" aria-label="Chat history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+    <button class="abtn" data-view="models" title="Models and providers" aria-label="Models"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4"/></svg></button>
+    <button class="abtn" data-view="skills" title="Skills" aria-label="Skills"><svg viewBox="0 0 24 24"><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/></svg></button>
+    <button class="abtn" data-view="ext" title="Extensions" aria-label="Extensions"><svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4z"/><path d="M16.5 13v7M13 16.5h7"/></svg></button>
+    <button class="abtn" data-view="tools" title="Installed Tools" aria-label="Installed Tools"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3 3-3-3z"/><path d="m15 5 4-2 2 2-2 4"/></svg></button>
+    <button class="abtn" data-view="conn" title="Connections: GitHub, Vercel, MySQL" aria-label="Connections"><svg viewBox="0 0 24 24"><path d="M9 3v5M15 3v5"/><path d="M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v3"/></svg></button>
+    <span class="sp"></span>
+    <button class="abtn" id="settingsBtn" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg></button>
+  </nav>
+
+  <aside id="side">
+    <section class="view" data-view="explorer">
+      <div class="vh"><span id="expTitle">Explorer</span><span class="sp"></span><button id="expOpen" class="btn sm" type="button" title="Open folder…" aria-label="Open folder">Open folder…</button><button id="expRefresh" class="btn sm" type="button" title="Refresh" aria-label="Refresh explorer">&#x21bb;</button></div>
+      <div id="tree" class="vb" role="tree"></div>
+    </section>
+
+    <section class="view" data-view="git">
+      <div class="vh"><span>Source control</span><span class="sp"></span><button id="gitRefreshBtn" class="btn sm" type="button" aria-label="Refresh">&#x21bb;</button></div>
+      <div id="gitBody" class="vb"></div>
+    </section>
+
+    <section class="view" data-view="checkpoints">
+      <div class="vh"><span>Workspace checkpoints</span><span class="sp"></span><button id="cpRefresh" class="btn sm" type="button" aria-label="Refresh checkpoints">&#x21bb;</button></div>
+      <div class="vb">
+        <div class="pad" style="margin:8px 0"><button id="cpCreate" class="btn primary" type="button">Create checkpoint</button></div>
+        <div class="chk pad"><input id="cpAuto" type="checkbox" checked><label for="cpAuto" title="Creates a restore point before the agent edits a file or runs a terminal command in a turn.">Auto checkpoint</label></div>
+        <p id="cpMsg" class="hint pad" role="status"></p>
+        <div id="cpList"></div>
+        <div class="sect"><h4>Comparison</h4><div id="cpPreview" class="hint"></div>
+</div>
+      </div>
+    </section>
+
+    <section class="view" data-view="codebase">
+      <div class="vh"><span>Codebase intelligence</span><span class="sp"></span><button id="codeIndexRefresh" class="btn sm" type="button" title="Check index status">&#x21bb;</button></div>
+      <div class="vb">
+        <div class="pad" style="margin:8px 0"><button id="codeIndexBuild" class="btn primary" type="button">Index / Rebuild project</button></div>
+        <p id="codeIndexStatus" class="hint pad" role="status"></p>
+        <div class="sect">
+          <h4>Code search</h4>
+          <label for="codeQuery" title="Describe what you want to find, for example where login tokens are stored.">Search</label>
+          <input id="codeQuery" type="search" placeholder="Search code" autocomplete="off" maxlength="240">
+          <div class="row" style="margin-top:6px"><button id="codeSearchBtn" class="btn sm primary" type="button">Search code</button><button id="codeMapBtn" class="btn sm" type="button">Project map</button></div>
+          <p id="codeSearchStatus" class="hint" role="status"></p>
+        </div>
+        <div id="codeResults" class="sect"></div>
+      </div>
+    </section>
+
+    <section class="view" data-view="log">
+      <div class="vh"><span>Permissions and activity</span></div>
+      <div class="vb">
+        
+        <div class="sect">
+          <h4>Your rules</h4>
+          <div id="ruleList"></div>
+          <label for="ruleAction">Add a rule</label>
+          <div class="row"><select id="ruleAction"><option value="allow">Always allow</option><option value="deny">Never allow</option></select><select id="ruleTool"><option value="command">Commands</option><option value="edit">File edits</option><option value="ext">Extension tools</option><option value="site">Websites (external)</option><option value="sql">SQL that changes data</option><option value="github">GitHub changes</option><option value="vercel">Vercel changes</option><option value="*">Anything</option></select></div>
+          <input id="ruleMatch" type="text" autocomplete="off" placeholder="Commands: what they start with, e.g. npm test. Others: a name or *" style="margin-top:6px">
+          <div class="row" style="margin-top:6px"><button id="ruleAdd" class="btn sm primary" type="button">Add rule</button></div>
+        </div>
+        <div class="sect">
+          <h4 title="Shows actions from this chat app or the bridge audit log. Choose the source with the button below.">Activity</h4>
+          <div class="row"><input id="logQ" type="text" autocomplete="off" placeholder="Search activity" aria-label="Search activity" style="flex:1;min-width:0"><select id="logFilter" aria-label="Filter activity"><option value="all">All</option><option value="err">Errors</option><option value="you">You allowed</option><option value="blocked">Blocked / denied</option></select></div>
+          <div class="row" style="margin-top:6px"><button id="logSrc" class="btn sm" type="button" aria-pressed="false">This chat app</button><button id="logJson" class="btn sm" type="button">Export JSON</button><button id="logCsv" class="btn sm" type="button">Export CSV</button><button id="logClear" class="btn sm" type="button">Clear</button></div>
+          <p class="hint" id="logNote"></p>
+          <div id="logList" style="margin:6px -12px 0"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" data-view="sessions">
+      <div class="vh"><span>Chat history</span><span class="sp"></span><button id="sessNew" class="btn sm" type="button">New chat</button></div>
+      <div class="pad"><input id="sessFilter" type="text" placeholder="Search chats" autocomplete="off" aria-label="Search chats"></div>
+      <div id="sessList" class="vb" style="margin-top:8px"></div>
+    </section>
+
+    <section class="view" data-view="models">
+      <div class="vh"><span>Models</span><span class="sp"></span><button id="provRefresh" class="btn sm" type="button">Refresh models</button><button id="provAdd" class="btn sm primary" type="button">Add provider</button></div>
+      <div class="vb">
+        <div id="provList"></div>
+      </div>
+    </section>
+
+    <section class="view" data-view="skills">
+      <div class="vh"><span>Skills</span></div>
+      <div class="vb">
+        <p id="skMsg" class="hint pad"></p>
+        <div id="skList"></div>
+        <div class="sect">
+          <h4>Install skill</h4>
+          <label for="skSrc" title="Enter a Git repository URL, owner/repository, or a direct SKILL.md link.">Source</label>
+          <input id="skSrc" type="text" autocomplete="off" placeholder="owner/repo">
+          <label for="skOnly" title="Optional subfolder containing the skill files.">Skill folder</label>
+          <input id="skOnly" type="text" autocomplete="off">
+          <div class="row" style="margin-top:8px"><button id="skInstall" class="btn primary" type="button">Install</button></div>
+        </div>
+        <div class="sect">
+          <h4>SKILL.md</h4>
+          <label for="skName">Skill name</label>
+          <input id="skName" type="text" autocomplete="off" placeholder="my-skill">
+          <label for="skContent">Contents</label>
+          <textarea id="skContent" class="fld" rows="5" placeholder="SKILL.md content"></textarea>
+          <div class="row" style="margin-top:8px"><button id="skSave" class="btn" type="button">Save skill</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" data-view="ext">
+      <div class="vh"><span>Extensions</span><span class="sp"></span><button id="extRefresh" class="btn sm" type="button" aria-label="Refresh extensions">&#x21bb;</button></div>
+      <div class="vb">
+        <section class="ext-marketplace" aria-label="VS Code extension marketplace">
+          <div class="ext-market-heading"><span>VS Code Extension Marketplace</span><span class="ext-market-source" title="Search results pass CodeSpace's runtime/API compatibility checks; activation is not guaranteed. Node-host extensions execute trusted publisher code in a separate process, but Node's permission model is not a security sandbox. Do not run Node-host extensions from untrusted publishers.">Open VSX</span></div>
+          <div class="ext-market-search"><input id="extMktQuery" type="search" autocomplete="off" placeholder="Search compatible extensions" aria-label="Search compatible VS Code extensions"><button id="extMktSearch" class="btn primary sm" type="button">Search</button></div>
+          <div id="extMktStatus" class="ext-market-status" aria-live="polite"></div>
+          <div id="extMktResults" class="ext-market-results"></div>
+        </section>
+        <section class="ext-vscode-installed">
+          <div class="ext-subheading"><span>Installed VS Code Extensions</span><button id="extVsixRefresh" class="btn sm" type="button" aria-label="Refresh installed VS Code extensions">↻</button></div>
+          <div id="extVsixInstalled" class="ext-vsix-installed"></div>
+        </section>
+        <section class="ext-codespace-tools">
+          <div class="ext-subheading">Installed CodeSpace Tools</div>
+          <p id="extMsg" class="hint pad"></p>
+          <div class="ext-install-bar">
+            <input id="extGitSrc" type="text" autocomplete="off" placeholder="GitHub repository (owner/repo or URL)" aria-label="GitHub repository">
+            <button id="extGitExt" class="btn primary sm" type="button">Install</button>
+          </div>
+          <div id="extList"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="view" data-view="tools">
+      <div class="vh"><span>Installed Tools</span><span class="sp"></span><button id="toolsRefresh" class="btn sm" type="button" aria-label="Refresh installed tools">&#x21bb;</button></div>
+      <div class="vb">
+        <div id="toolsList" class="tools-list"></div>
+        <div class="tools-history-head">Installation History</div>
+        <div id="toolsHistory" class="tools-history"></div>
+      </div>
+    </section>
+
+    <section class="view" data-view="conn">
+      <div class="vh"><span>Connections</span></div>
+      <div class="vb">
+        <p id="connMsg" class="hint pad"></p>
+
+        <div class="card" id="ghCard">
+          <h4><span class="dot" id="ghDot"></span>GitHub</h4>
+          <p class="hint" id="ghState">Not connected</p>
+          <label class="hint" for="ghToken">Personal access token</label>
+          <input id="ghToken" type="password" autocomplete="off" placeholder="ghp_… or github_pat_…">
+          <div class="chk"><input id="ghExpose" type="checkbox"><label for="ghExpose" title="Allows terminal commands such as git push and gh to use this GitHub connection.">Terminal access</label></div>
+          <div class="row"><button id="ghConnect" class="btn primary sm" type="button">Connect</button><button id="ghRepos" class="btn sm" type="button">My repos</button><button id="ghOff" class="btn sm danger" type="button">Disconnect</button></div>
+          <div id="ghList"></div>
+        </div>
+
+        <div class="card" id="vcCard">
+          <h4><span class="dot" id="vcDot"></span>Vercel</h4>
+          <p class="hint" id="vcState">Not connected</p>
+          <label class="hint" for="vcToken">Access token</label>
+          <input id="vcToken" type="password" autocomplete="off">
+          <label class="hint" for="vcTeam">Team ID (optional)</label>
+          <input id="vcTeam" type="text" autocomplete="off" placeholder="team_…">
+          <div class="chk"><input id="vcExpose" type="checkbox"><label for="vcExpose" title="Allows terminal commands to use this Vercel connection.">Terminal access</label></div>
+          <div class="row"><button id="vcConnect" class="btn primary sm" type="button">Connect</button><button id="vcProjects" class="btn sm" type="button">Projects</button><button id="vcDeploy" class="btn sm" type="button">Deploy</button><button id="vcOff" class="btn sm danger" type="button">Disconnect</button></div>
+          <div id="vcList"></div>
+        </div>
+
+        <div class="card" id="dbCard">
+          <h4><span class="dot" id="dbDot"></span>MySQL</h4>
+          <p class="hint" id="dbState">Not connected</p>
+          <div class="row"><div style="flex:1"><label class="hint" for="dbHost">Host</label><input id="dbHost" type="text" autocomplete="off" placeholder="127.0.0.1"></div><div style="width:76px"><label class="hint" for="dbPort">Port</label><input id="dbPort" type="number" placeholder="3306"></div></div>
+          <div class="row"><div style="flex:1"><label class="hint" for="dbUser">User</label><input id="dbUser" type="text" autocomplete="off"></div><div style="flex:1"><label class="hint" for="dbPass">Password</label><input id="dbPass" type="password" autocomplete="off"></div></div>
+          <label class="hint" for="dbName">Database</label>
+          <input id="dbName" type="text" autocomplete="off">
+          <div class="chk"><input id="dbSsl" type="checkbox"><label for="dbSsl">Use SSL</label></div>
+          <div class="chk"><input id="dbRO" type="checkbox" checked><label for="dbRO" title="Blocks SQL operations that change your data.">Read-only</label></div>
+          <div class="row"><button id="dbConnect" class="btn primary sm" type="button">Connect</button><button id="dbTables" class="btn sm" type="button">Tables</button><button id="dbOff" class="btn sm danger" type="button">Disconnect</button></div>
+          <div id="dbList"></div>
+          <label class="hint" for="dbSql">Run SQL</label>
+          <textarea id="dbSql" class="fld" rows="3" placeholder="SELECT * FROM users LIMIT 20"></textarea>
+          <div class="row" style="margin-top:6px"><button id="dbRun" class="btn sm" type="button">Run</button></div>
+        </div>
+      </div>
+    </section>
+  </aside>
+
+  <div id="sideSplit" role="separator" aria-orientation="vertical" aria-label="Resize side panel"></div>
+  <div id="work">
+    <section id="editor" aria-label="Editor">
+      <div id="tabs" role="tablist"></div>
+      <div id="editorBody">
+        <div id="fileView" hidden>
+          <div class="fbar"><span id="filePath"></span><span id="fStale" hidden>· changed on disk <button id="fReload" class="btn sm" type="button">Load it</button></span><span id="fState"></span><span class="sp"></span><button id="fPrev" class="btn sm" type="button" hidden>Open in preview</button><button id="fCopy" class="btn sm" type="button">Copy</button><button id="fRevert" class="btn sm" type="button" hidden>Revert</button><button id="csDebugOpen" class="btn sm" type="button" title="Open the Node.js debugger">Debug</button><button id="fSave" class="btn sm primary" type="button" disabled title="Save (Ctrl+S)">Save</button></div>
+          <div id="edWrap" class="edwrap">
+            <div id="edGutter" class="gutter" role="group" aria-label="Line numbers and breakpoints"></div>
+            <div class="edmain">
+              <pre id="edHl" class="edhl" aria-hidden="true"></pre>
+              <textarea id="edTa" class="edta" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off" aria-label="File editor"></textarea>
+            </div>
+          </div>
+          <section id="csDebugPanel" class="cs-debug-panel" hidden aria-label="Node.js Debugger">
+            <div class="cs-debug-head">
+              <strong>Run and Debug</strong><span id="csDebugStatus" role="status">Not connected</span><span class="sp"></span>
+              <button id="csDebugLaunch" class="btn sm primary" type="button">Launch Node</button>
+              <button id="csDebugPause" class="btn sm" type="button" disabled title="Pause execution">Pause</button>
+              <button id="csDebugContinue" class="btn sm" type="button" disabled title="Continue execution">Continue</button>
+              <button id="csDebugNext" class="btn sm" type="button" disabled title="Step over">Step Over</button>
+              <button id="csDebugIn" class="btn sm" type="button" disabled title="Step into">Step In</button>
+              <button id="csDebugOut" class="btn sm" type="button" disabled title="Step out">Step Out</button>
+              <button id="csDebugStop" class="btn sm danger" type="button" disabled>Stop</button>
+              <button id="csNodePackagesOpen" class="btn sm" type="button" title="Manage Node.js project dependencies">Packages</button>
+              <button id="csPythonPackagesOpen" class="btn sm" type="button" title="Manage Python project dependencies">Python Packages</button>
+              <button id="csLspSetupOpen" class="btn sm" type="button" title="Install and configure editor language services">Language Servers</button>
+              <button id="csDebugClose" class="btn sm" type="button" title="Close Debug panel">×</button>
+            </div>
+            <div class="cs-debug-body">
+              <div class="cs-debug-col"><div class="cs-debug-title">CALL STACK</div><div id="csDebugStack" class="cs-debug-list"><div class="cs-debug-empty">Start a Node.js debug session.</div></div></div>
+              <div class="cs-debug-col"><div class="cs-debug-title">VARIABLES</div><div id="csDebugVars" class="cs-debug-list"><div class="cs-debug-empty">Variables appear when execution pauses.</div></div></div>
+              <div class="cs-debug-col cs-debug-console-col"><div class="cs-debug-title">DEBUG CONSOLE</div><div id="csDebugOutput" class="cs-debug-output" aria-live="polite"></div><div class="cs-debug-eval"><input id="csDebugExpr" type="text" autocomplete="off" spellcheck="false" placeholder="Evaluate expression in selected frame"><button id="csDebugEval" class="btn sm" type="button" disabled>Evaluate</button></div></div>
+            </div>
+            <section id="csNodePackagesPanel" class="cs-node-packages" hidden aria-label="Node.js Packages">
+              <div class="cs-node-packages-bar">
+                <input id="csNodePackageSpec" type="text" autocomplete="off" spellcheck="false" placeholder="Package name or name@version (e.g. express@^5)" aria-label="Package specification">
+                <button id="csNodePackageInstall" class="btn sm primary" type="button">Install</button>
+                <button id="csNodePackageRefresh" class="btn sm" type="button">Refresh</button>
+                <button id="csNodePackagesBack" class="btn sm" type="button">Debugger</button>
+              </div>
+              <div id="csNodePackageList" class="cs-node-package-list"><div class="cs-debug-empty">Loading installed packages…</div></div>
+              <div class="cs-node-package-note">Public npm registry only · lifecycle scripts are disabled · native add-ons and Git/file/workspace dependencies are not supported.</div>
+            </section>
+            <section id="csLspSetupPanel" class="cs-node-packages" hidden aria-label="Language Servers">
+              <div class="cs-node-packages-bar">
+                <strong>Editor Language Services</strong>
+                <span class="sp"></span>
+                <button id="csLspSetupInstall" class="btn sm primary" type="button">Install baseline</button>
+                <button id="csLspSetupBack" class="btn sm" type="button">Debugger</button>
+              </div>
+              <div id="csLspSetupStatus" class="cs-node-package-list" role="status" aria-live="polite"><div class="cs-debug-empty">Configure JavaScript, TypeScript, Python, HTML, CSS/SCSS and JSON language servers in Android Local.</div></div>
+              <div class="cs-node-package-note">Official npm registry · package scripts disabled · approved installation · Android Local workspace only. Existing custom language entries are preserved.</div>
+            </section>
+            <section id="csPythonPackagesPanel" class="cs-node-packages" hidden aria-label="Python Packages">
+              <div class="cs-node-packages-bar">
+                <input id="csPythonPackageSpec" type="text" autocomplete="off" spellcheck="false" placeholder="Package constraints; separate packages with semicolons (e.g. requests>=2.31,<3)" aria-label="Python package specification">
+                <button id="csPythonPackageInstall" class="btn sm primary" type="button">Install</button>
+                <button id="csPythonPackageRefresh" class="btn sm" type="button">Refresh</button>
+                <button id="csPythonPackagesBack" class="btn sm" type="button">Debugger</button>
+              </div>
+              <div id="csPythonPackageList" class="cs-node-package-list"><div class="cs-debug-empty">Loading installed Python packages…</div></div>
+              <div class="cs-node-package-note">Official PyPI only · pure-Python py3-none-any wheels · bounded PEP 440 dependency resolution · no extras, native extensions or build scripts.</div>
+            </section>
+          </section>
+        </div>
+        <div id="tableView" hidden>
+          <div class="fbar"><span id="tblInfo"></span><span class="sp"></span><button id="tblCsv" class="btn sm" type="button">Copy CSV</button></div>
+          <div id="tblWrap" class="tblwrap"></div>
+        </div>
+        <div id="diffView" hidden>
+          <div class="fbar"><span id="diffInfo"></span></div>
+          <div id="diffBody" class="diffbody"></div>
+        </div>
+        <section id="bp" hidden aria-label="Website preview">
+          <div class="chrome-ui" aria-label="Browser controls">
+            <div class="chrome-tabstrip">
+              <div class="chrome-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="chrome-tabactive" title="Current preview tab"><span class="chrome-favicon">🌐</span><span id="bTabTitle">New Tab</span><button id="bTabClose" type="button" title="Clear preview" aria-label="Clear preview">×</button></div>
+              <span class="sp"></span>
+              <button id="bMin" class="chrome-navbtn" type="button" aria-label="Minimize browser" title="Minimize browser">–</button>
+              <button id="bMax" class="chrome-navbtn" type="button" aria-label="Full screen browser" title="Full screen browser">⛶</button>
+            </div>
+            <div class="chrome-navrow">
+              <button id="bBack" class="chrome-navbtn" type="button" title="Back" aria-label="Back">‹</button>
+              <button id="bForward" class="chrome-navbtn" type="button" title="Forward" aria-label="Forward">›</button>
+              <button id="bReload" class="chrome-navbtn" type="button" title="Reload" aria-label="Reload">⟳</button>
+              <div class="chrome-omnibox">
+                <span id="bSecureIcon" class="chrome-site-icon" aria-hidden="true">🔒</span>
+                <input id="bAddr" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search or enter website address" aria-label="Address">
+                <button id="bGo" type="button" title="Go" aria-label="Go">↵</button>
+              </div>
+              <button id="bAttach" class="chrome-navbtn" type="button" title="Attach page or selected text to chat" aria-label="Attach page or selected text to chat">📎</button>
+            </div>
+          </div>
+          
+          <div id="bview" data-mode="chrome" data-viewport="responsive" tabindex="0">
+            <div id="bWebview" aria-label="Integrated Chromium browser surface" hidden></div>
+            <iframe id="bFrame" title="Live website" loading="eager" referrerpolicy="strict-origin-when-cross-origin" hidden></iframe>
+            <img id="bImg" alt="Live stream from the Chrome browser controlled by the agent" hidden>
+            <div id="bEmpty"></div>
+          </div>
+          <div id="bFrameHint" class="browser-hint"></div>
+          <p id="bInfo" class="hint"></p>
+          <div class="diagbar"><button id="bConsoleBtn" class="btn sm" type="button">Console</button><button id="bNetworkBtn" class="btn sm" type="button">Network</button><button id="bDiagRefresh" class="btn sm" type="button">Refresh</button><span class="sp"></span><span id="bStreamStatus" class="hint">Live page ready</span>
+</div>
+          <div id="previewDiag" hidden><div id="previewDiagContent" class="diagcontent"></div></div>
+          <p id="bErr" class="hint" style="color:var(--err)"></p>
+        </section>
+      </div>
+    </section>
+
+  </div>
+
+  <div id="split" role="separator" aria-orientation="vertical" aria-label="Resize chat"></div>
+
+  <section id="chatPane" aria-label="Agent chat">
+    <div id="chatHead">
+      <span class="ctag">CHAT</span>
+      <span class="title" id="chatTitle">New chat</span>
+      <button id="planBtn" class="btn sm" type="button" title="View the current task plan and its progress.">Plan</button>
+    </div>
+    <div id="planPanel" hidden aria-label="Agent plan"></div>
+    <div id="taskBar" hidden aria-label="Background tasks"></div>
+    <div id="sandboxBar" hidden aria-label="Sandbox status"></div>
+    <section id="maActivityPanel" hidden aria-label="Live AI activity" aria-live="off" data-status="waiting">
+      <div class="ma-activity-strip">
+        <span id="maActivityOrb" class="ma-activity-orb" aria-hidden="true"></span>
+        <span id="maActivityState" class="ma-activity-state">Waiting</span>
+        <div id="maActivityLine" class="ma-activity-line">
+          <span id="maActivityDetail" class="ma-activity-detail">Starting workflow</span>
+        </div>
+        <span id="maActivityElapsed" class="ma-activity-elapsed" aria-hidden="true"></span>
+        <button id="maActivityClose" class="ma-activity-close" type="button" aria-label="Hide agent activity"></button>
+      </div>
+      <div id="maActivityFeed" class="ma-feed" aria-hidden="true"></div>
+    </section>
+    <div id="chat" aria-live="polite"></div>
+    <div id="composer">
+      <div id="attachDropHint">Drop to attach</div>
+      <div id="ctxPop" class="pop" role="dialog" aria-label="Context window" hidden>
+        <div class="pophead">Context window</div>
+        <div class="popbig" id="ctxPct">0%</div>
+        <div class="popsub" id="ctxText">0 / 0</div>
+        <div class="popbar"><i id="ctxPopBar"></i></div>
+        <div class="popline"><span>Conversation</span><b id="ctxMsgs">-</b></div>
+        <div class="popline"><span>System &amp; tools</span><b id="ctxSys">-</b></div>
+        <div class="popline"><span>Model limit</span><b id="ctxLim">-</b></div>
+        <div class="popline"><span>Saved by token saver</span><b id="ctxSaved">-</b></div>
+        <p class="hint" id="ctxNote"></p>
+        <button id="ctxCompress" class="btn sm" type="button">Compress conversation</button>
+      </div>
+      <div class="cbox">
+        <div id="attachTray" class="attachtray" hidden></div>
+        <textarea id="input" rows="1" placeholder="Ask the agent… (@ to attach)" aria-label="Message"></textarea>
+        <div class="ctool">
+        <div class="crow crow-top">
+          <select id="modeSel" aria-label="Mode" title="Ask answers without tools. Agent can use workspace tools. Multi coordinates specialist agents for planning and independent review."><option value="agent">Agent</option><option value="multi">Multi</option><option value="ask">Ask</option></select>
+          <select id="provQuick" aria-label="Model" title="Free models are grouped by model IDs ending in :free. Other models may be paid; check each provider for billing details."></select>
+          <select id="sandboxSel" aria-label="Sandbox" title="Local runs the agent on this device. Free server runs it on your Render Agent Server. GitHub Codespace runs it in a Codespace agent server (add URL and token when asked)." hidden><option value="Local">Local</option><option value="Render">Free server</option><option value="GitHub">GitHub Codespace</option><option value="configure">Configure Render…</option><option value="configure-github">Configure GitHub…</option></select>
+          <div id="routeWrap" class="route-wrap">
+            <button id="routeBtn" class="route-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Chat engine: CodeSpace" data-route="codespace" title="Choose which engine answers your messages.">
+              <svg class="rt-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg><span class="rt-txt">CodeSpace</span><span class="rt-chev" aria-hidden="true">&#9662;</span>
+            </button>
+            <div id="routeMenu" class="perm-menu route-menu" role="menu" aria-label="Chat engine" hidden>
+              <div class="route-head">Chat engine</div>
+              <button class="perm-option" type="button" role="menuitemradio" aria-checked="true" data-route="codespace"><span class="perm-option-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg></span><span class="perm-option-copy"><b>CodeSpace</b><small>Your selected model</small></span></button>
+              <button class="perm-option" type="button" role="menuitemradio" aria-checked="false" data-route="opencode"><span class="perm-option-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/></svg></span><span class="perm-option-copy"><b>OpenCode</b><small>Uses OpenCode&#8217;s own login</small></span></button>
+              <button class="perm-option" type="button" role="menuitemradio" aria-checked="false" data-route="zai"><span class="perm-option-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14L5 19h14"/></svg></span><span class="perm-option-copy"><b>Chat Z.ai</b><small>chat.z.ai guest models</small></span></button>
+            </div>
+          </div>
+        </div>
+        <div class="crow crow-bot">
+          <button id="attachBtn" class="btn sm attach-icon-only" type="button" aria-label="Attach a file or image">＋</button><input id="attachInput" type="file" multiple hidden accept="image/*,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.php,.html,.css,.xml,.yaml,.yml,.sql,.java,.kt,.dart,.go,.rs,.sh,.bat,.ps1,.log,.csv">
+          <div id="permWrap" class="perm-wrap">
+            <button id="permBtn" class="perm-btn" type="button" aria-label="Agent permissions: Default permissions" aria-haspopup="menu" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.2 8.2-7 10-3.8-1.8-7-5-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg><svg class="perm-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+            </button>
+            <div id="permMenu" class="perm-menu" role="menu" aria-label="Agent permission mode" hidden>
+              <button class="perm-option" title="Routine workspace actions run automatically. Risky, sensitive or external actions still ask for approval." type="button" role="menuitemradio" aria-checked="false" data-permission="smart">
+                <span class="perm-option-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l4 4L19 6"/></svg></span><span class="perm-option-copy"><b>Default</b></span>
+              </button>
+              <button class="perm-option" title="Skips approval prompts for actions, including file changes, commands and external changes. Explicit Never allow rules still apply. Use carefully." type="button" role="menuitemradio" aria-checked="false" data-permission="all">
+                <span class="perm-option-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18"/></svg></span><span class="perm-option-copy"><b>Allow all</b></span>
+              </button>
+              <button class="perm-option" title="Routine commands and edits proceed automatically. Destructive or sensitive actions still require approval." type="button" role="menuitemradio" aria-checked="false" data-permission="auto">
+                <span class="perm-option-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5"/><path d="M12 8v4l3 2"/></svg></span><span class="perm-option-copy"><b>Autopilot</b></span>
+              </button>
+              <div class="perm-menu-footer"><button id="permManage" type="button" class="perm-manage">Manage rules &amp; activity</button></div>
+            </div>
+          </div>
+          <select id="thinkSel" aria-label="Thinking level" title="Requests a thinking effort from the model. Available levels depend on model and provider support."><option value="off">Think: Off</option><option value="low">Think: Fast</option><option value="medium">Think: Balanced</option><option value="high">Think: Deep</option></select><span id="thinkState" class="think-state" role="status" aria-live="polite" hidden></span>
+          <button id="saverBtn" class="tgl on" type="button" role="switch" aria-checked="true" title="Keeps chat context compact to reduce token use."><span class="knob"></span><span class="lbl">Saver</span></button>
+          <span class="sp"></span>
+          <span id="ctxHint" class="busytxt" hidden></span>
+          <button id="ctxRing" class="ring" type="button" aria-label="Context window usage" aria-haspopup="dialog"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle class="rb" cx="12" cy="12" r="9"/><circle id="ctxArc" class="rf" cx="12" cy="12" r="9" transform="rotate(-90 12 12)"/></svg></button>
+        </div>
+        </div>
+        <div class="sendSlot" aria-label="Message actions">
+          <button id="stopBtn" class="sbtn stop" type="button" title="Stop" aria-label="Stop" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor"/></svg></button>
+          <button id="sendBtn" class="sbtn" type="button" title="Send message" aria-label="Send message"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="termPanel" hidden aria-label="Terminal">
+    <div id="termDrag"></div>
+    <div id="termBar">
+      <span class="term-label">Terminal</span>
+      <div id="termTabs" style="display:flex"></div>
+      <select id="termShell" aria-label="Shell"></select>
+      <button id="termNew" class="btn sm" type="button" title="New terminal">+</button>
+      <span class="sp"></span>
+      <button id="termClear" class="btn sm" type="button">Clear</button>
+      <button id="termKill" class="btn sm" type="button">Stop</button>
+      <button id="termHide" class="btn sm" type="button" aria-label="Hide terminal">&#x2715;</button>
+    </div>
+    <div id="devWorkflow" aria-label="Development workflow status"><span class="wf-title">Workflow</span><span id="wfSummary">Waiting for terminal sessions…</span><span class="wf-spacer"></span><span id="wfAutoRepair" class="wf-chip" title="Automatically diagnoses terminal errors and starts the repair workflow when useful.">Auto Repair: ON</span><button id="wfMemoryBtn" class="btn sm" type="button">Memory</button><button id="wfRefresh" class="btn sm" type="button" title="Refreshes the current build, test and development-server status.">Refresh</button><div id="wfMemoryPanel" hidden style="flex-basis:100%;border-top:1px solid var(--line);padding:8px 0;color:var(--ink);font-size:12px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong title="Workspace-specific notes that are included as bounded context in future coding tasks.">Project memory</strong><span id="wfMemoryMeta" style="color:var(--muted)"></span><span class="wf-spacer"></span><button id="wfMemoryAdd" class="btn sm" type="button">Add note</button><button id="wfProjectScan" class="btn sm" type="button">Scan project</button><button id="wfMemorySave" class="btn sm" type="button">Save</button><button id="wfMemoryClose" class="btn sm" type="button" aria-label="Close project memory">Close</button></div><div id="wfProjectScanPanel" hidden style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line);color:var(--ink)"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong title="Reads project metadata and structure to prepare suggested memory notes. It does not execute commands or save notes automatically.">Project understanding</strong><span id="wfProjectScanMeta" style="color:var(--muted)"></span><span class="wf-spacer"></span><button id="wfProjectDraft" class="btn sm" type="button" disabled>Prepare memory draft</button><button id="wfProjectScanClose" class="btn sm" type="button">Close</button></div><div id="wfProjectScanResults" style="display:grid;gap:5px;margin-top:8px"></div></div><div id="wfMemoryItems" style="display:grid;gap:6px;margin-top:8px"></div></div></div>
+    <div id="termXterm" hidden aria-label="Interactive terminal"></div>
+    <pre id="termOut" tabindex="0"></pre>
+    <div id="termIn"><span class="prompt" id="termPrompt">&rsaquo;</span><input id="termCmd" type="text" autocomplete="off" spellcheck="false" aria-label="Terminal input" placeholder="Command"></div>
+  </section>
+
+  <footer id="statusbar">
+    <button id="sbBridge" type="button" title="Terminal bridge">Bridge: not connected</button>
+    <button id="sbGit" type="button" title="Source control" hidden></button>
+    <button id="sbTerm" type="button">&#x25A3; Terminal</button>
+    <span class="sp"></span>
+    <button id="sbModel" type="button" title="Model in use">Model: -</button>
+    <button id="sbCost" type="button" title="Estimated cost for this chat">Est. cost: $0.0000</button>
+    <button id="sbCtx" type="button">Context: -</button>
+  </footer>
+</div>
+
+<!-- Persistent task center -->
+<dialog id="taskCenterDlg" class="task-center-dialog" aria-labelledby="taskCenterTitle">
+  <div class="task-center-head"><h2 id="taskCenterTitle">Task Center</h2><button id="taskCenterClose" class="btn sm" type="button" aria-label="Close">✕</button></div>
+  <form id="taskQueueForm" class="task-queue-form">
+    <div class="task-queue-label"><label for="taskQueuePrompt" title="Add a task to the queue. It will not run until you choose Run or Run next.">New task</label></div>
+    <textarea id="taskQueuePrompt" class="fld" rows="2" placeholder="Task…" required></textarea>
+    <div class="actions"><button class="btn primary" type="submit">Add to queue</button></div>
+  </form>
+  <div class="task-center-toolbar"><span id="taskCenterCounts" class="hint"></span><button id="taskRunNext" class="btn sm primary" type="button">Run next</button></div>
+  <div id="taskCenterList" class="task-center-list" aria-live="polite"></div>
+</dialog>
+
+<!-- Settings -->
+<dialog id="dlg">
+  <h2>Settings</h2>
+
+  <div id="pwaBox">
+    <h3>Install as an app</h3>
+    <p class="hint" id="pwaHint"></p>
+    <div class="row"><button id="pwaInstallBtn" class="btn primary" type="button" hidden>Install app</button><span id="pwaStatus" class="hint"></span></div>
+  </div>
+  <h3>Model providers</h3>
+  <div class="row"><button id="openModels" class="btn" type="button">Open the Models panel</button></div>
+
+  <h3>OpenCode CLI</h3>
+  <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap"><span id="ocStatus" class="hint" style="flex:1;min-width:200px"></span>
+<button id="ocInstall" class="btn sm primary" type="button" hidden>Install OpenCode for CodeSpace</button><button id="ocRecheck" class="btn sm" type="button">Check again</button></div>
+  <label for="ocProv" title="Provider ID used by OpenCode, such as opencode, anthropic, openai or openrouter.">OpenCode API key</label>
+  <div class="row" style="gap:6px;flex-wrap:wrap"><input id="ocProv" class="fld" list="ocProvList" value="opencode" autocomplete="off" spellcheck="false" style="flex:0 0 150px"><datalist id="ocProvList"></datalist><input id="ocKey" class="fld" type="password" placeholder="Paste API key" autocomplete="off" spellcheck="false" style="flex:1;min-width:160px"><button id="ocSaveKey" class="btn sm primary" type="button">Save</button><button id="ocClearKey" class="btn sm danger" type="button">Remove</button></div>
+  <label for="ocModel" title="Optional model ID in provider/model format, such as opencode/big-pickle.">Default model</label>
+  <input id="ocModel" class="fld" placeholder="provider/model" autocomplete="off" spellcheck="false">
+  <label>Saved API keys (click one to switch when a key hits its limit)</label>
+  <div id="ocKeyList" class="hint"></div>
+  <p id="ocSaved" class="hint"></p>
+  <p id="ocMsg" class="hint"></p>
+  <div class="chk"><input id="openCodeAutoApprove" type="checkbox"><label for="openCodeAutoApprove" title="Lets OpenCode actions run without CodeSpace approval prompts. Use only with trusted projects and agents.">Auto-approve OpenCode</label></div>
+
+  <h3>Agent</h3>
+  <label for="sys">System prompt</label>
+  <textarea id="sys" class="fld" rows="3"></textarea>
+  <div class="row"><div style="flex:1"><label for="temp">Temperature</label><input id="temp" type="number" min="0" max="2" step="0.1"></div></div>
+  <div class="chk"><input id="agentOn" type="checkbox"><label for="agentOn">Enable agent tools</label></div>
+  <details id="multiAgentRoutesDetails" class="ma-routes">
+    <summary>Model routing</summary>
+    <div class="ma-routes-body">
+      <div class="ma-route-grid">
+        <div class="ma-route-field"><label for="maPlannerProvider">Planner</label><select id="maPlannerProvider"></select></div>
+        <div class="ma-route-field"><label for="maArchitectProvider">Architect</label><select id="maArchitectProvider"></select></div>
+        <div class="ma-route-field"><label for="maResearcherProvider" title="Can research information using supported web-search tools.">Researcher</label><select id="maResearcherProvider"></select></div>
+        <div class="ma-route-field"><label for="maTestProvider">QA Engineer</label><select id="maTestProvider"></select></div>
+        <div class="ma-route-field"><label for="maImplementerProvider" title="Implements approved code and project changes.">Coder</label><select id="maImplementerProvider"></select></div>
+        <div class="ma-route-field"><label for="maDebuggerProvider" title="Can be invoked when a task needs focused debugging.">Debugger</label><select id="maDebuggerProvider"></select></div>
+        <div class="ma-route-field"><label for="maReviewerProvider" title="Performs an independent review of proposed changes.">Reviewer</label><select id="maReviewerProvider"></select></div>
+      </div>
+    </div>
+  </details>
+  <div class="chk"><input id="smartTools" type="checkbox"><label for="smartTools" title="Only offer the tools a request needs. Faster and cheaper; the agent can turn more on.">Smart tool loading</label></div>
+  <div class="chk"><input id="tokenSaver" type="checkbox"><label for="tokenSaver" title="Recommended. Always keeps the conversation compact.">Token saver</label></div>
+  <div class="chk"><input id="autoCompress" type="checkbox"><label for="autoCompress" title="Also compress the conversation when the context is nearly full (85%).">Auto-compress</label></div>
+  <div class="chk"><input id="humanize" type="checkbox"><label for="humanize" title="Natural mouse paths, typing speed and smooth scrolling.">Human-like browser</label></div>
+  <div class="chk"><input id="browserVisible" type="checkbox"><label for="browserVisible" title="Shows the Agent Chrome window in web/PWA mode. Desktop uses the Integrated Browser.">Show agent browser window</label></div>
+  <div class="chk"><input id="browserPersist" type="checkbox"><label for="browserPersist" title="Remember cookies and logins in the agent browser between sessions.">Keep browser logins</label></div>
+  <label for="theme">Theme</label>
+  <select id="theme"><option value="auto">Match my system</option><option value="light">Light</option><option value="dark">Dark</option></select>
+  <div class="row"><div style="flex:1"><label for="chatFont">Chat font size</label><select id="chatFont"><option value="12">12 px</option><option value="13">13 px</option><option value="14">14 px</option><option value="15">15 px</option><option value="16">16 px</option></select></div><div style="flex:1"><label for="editorFont">Editor font size</label><select id="editorFont"><option value="11">11 px</option><option value="12">12 px</option><option value="13">13 px</option><option value="14">14 px</option><option value="15">15 px</option><option value="16">16 px</option><option value="18">18 px</option></select></div></div>
+
+  <h3>Terminal bridge</h3>
+  <label for="bUrl">Bridge URL</label>
+  <input id="bUrl" type="text" autocomplete="off" placeholder="http://127.0.0.1:8787">
+  <label for="bTok">Bridge token</label>
+  <input id="bTok" type="password" autocomplete="off">
+  <div class="row" style="margin-top:8px"><button id="bTest" class="btn" type="button">Test connection</button></div>
+  <p id="bMsg" class="hint"></p>
+  <details id="permBox" class="set-group">
+    <summary>Server permissions</summary>
+    <div id="permGrid" class="ma-route-grid"></div>
+  </details>
+
+  <details id="sandboxBox" class="set-group">
+    <summary>Sandbox environments</summary>
+    <div id="sandboxCap" class="hint"></div>
+    <div class="row" style="margin-top:6px"><button id="sandboxRefresh" class="btn sm" type="button">Detect providers</button><span id="sandboxMsg" class="hint"></span></div>
+  </details>
+
+  <h3>Settings file</h3>
+  <p class="hint" id="cfgPath"></p>
+  <div class="row"><button id="cfgExport" class="btn" type="button">Export</button><button id="cfgImport" class="btn" type="button">Import</button><input id="cfgFile" type="file" accept="application/json,.json" hidden></div>
+
+  <p id="settingsErr" class="hint" style="color:var(--err)"></p>
+  <div class="actions"><button id="cancelSettings" class="btn" type="button">Cancel</button><button id="saveSettings" class="btn primary" type="button">Save</button></div>
+</dialog>
+
+<!-- Approval -->
+<dialog id="appr">
+  <form method="dialog">
+    <h2 id="apprTitle" style="margin-bottom:8px"></h2>
+    <p id="apprWarn" class="hint" style="color:var(--err);font-weight:600" hidden></p>
+    <pre id="apprBody"></pre>
+    <div class="chk" id="apprAutoRow"><input id="apprAuto" type="checkbox"><label id="apprAutoLabel" for="apprAuto">Don't ask again for this tool until I reload</label></div>
+    <div class="actions"><button class="btn" value="deny">Deny</button><button class="btn primary" value="allow">Allow</button></div>
+  </form>
+</dialog>
+
+<!-- Provider editor -->
+<dialog id="provDlg">
+  <h2 id="pdTitle">Add provider</h2>
+  <div id="pgWrap">
+    <div class="pg-top"><input id="pgSearch" type="search" class="fld" placeholder="Search providers" autocomplete="off"><span id="pgChips"></span></div>
+    <div id="pgGrid" class="pg-grid" role="group" aria-label="Providers"></div>
+    <div id="pdConnect" class="pg-connect" hidden>
+      <b id="pcTitle"></b>
+      <div class="row" id="pcActions"></div>
+    </div>
+  </div>
+  <label for="pdPreset" title="Fills the form for a common server or service. You can still change every field afterwards.">Preset</label>
+  <select id="pdPreset">
+    <option value="">Choose…</option>
+    <option value="llama">llama.cpp server</option>
+    <option value="ollama">Ollama</option>
+    <option value="lmstudio">LM Studio</option>
+    <option value="vllm">vLLM</option>
+    <option value="openai">OpenAI</option>
+    <option value="openrouter">OpenRouter</option>
+    <option value="groq">Groq</option>
+    <option value="together">Together AI</option>
+    <option value="deepseek">DeepSeek</option>
+    <option value="mistral">Mistral</option>
+    <option value="anthropic">Anthropic (Claude)</option>
+    <option value="custom">Custom endpoint</option>
+  </select>
+  <label for="pdName">Name</label>
+  <input id="pdName" type="text" autocomplete="off" placeholder="Name">
+  <label for="pdType">Type</label>
+  <select id="pdType">
+    <option value="openai">OpenAI-compatible</option>
+    <option value="anthropic">Anthropic (Claude)</option>
+    <option value="custom">Custom endpoint</option>
+  </select>
+  <label for="pdBase" id="pdBaseLabel">Base URL</label>
+  <input id="pdBase" type="text" autocomplete="off" placeholder="http://localhost:8080/v1">
+  <div id="pdPathWrap"><label for="pdPath" title="Added to the Base URL to build the chat address.">Chat path</label><input id="pdPath" type="text" autocomplete="off" placeholder="/chat/completions"></div>
+  <label for="pdModel">Model</label>
+  <div class="row"><input id="pdModel" type="text" list="pdModels" autocomplete="off" placeholder="Model"><button id="pdFetch" class="btn" type="button">Fetch models</button></div>
+  <datalist id="pdModels"></datalist>
+  <div id="pdAuthWrap">
+    <label for="pdKey">API key</label>
+    <input id="pdKey" type="password" autocomplete="off" placeholder="API key">
+    <label for="pdAuth" title="How the API key is sent to the provider.">Key header</label>
+    <select id="pdAuth"><option value="bearer">Authorization: Bearer KEY</option><option value="x-api-key">x-api-key: KEY</option><option value="header">A header with a name I choose</option><option value="none">Don't send</option></select>
+    <div id="pdHeaderWrap"><label for="pdAuthHeader">Header name</label><input id="pdAuthHeader" type="text" autocomplete="off" placeholder="api-key"></div>
+  </div>
+  <label for="pdExtra" title="Optional. JSON object of additional HTTP headers, for example {&quot;X-My-Header&quot;: &quot;value&quot;}.">Extra headers</label>
+  <textarea id="pdExtra" class="fld" rows="2" placeholder="{ }"></textarea>
+  <label for="pdBody" title="Optional. JSON object merged into every request body, for example {&quot;top_p&quot;: 0.9}.">Extra fields</label>
+  <textarea id="pdBody" class="fld" rows="2" placeholder="{ }"></textarea>
+  <label for="pdCtx" title="Maximum tokens the model can read at once.">Context window</label>
+  <input id="pdCtx" type="number" min="1024" step="1000">
+  <div class="row"><div style="flex:1"><label for="pdInputRate" title="USD per 1M tokens. Used for the cost meter only.">Input price</label><input id="pdInputRate" type="number" min="0" step="0.01" value="0"></div><div style="flex:1"><label for="pdOutputRate" title="USD per 1M tokens. Used for the cost meter only.">Output price</label><input id="pdOutputRate" type="number" min="0" step="0.01" value="0"></div></div>
+  <div class="chk"><input id="pdPromptCache" type="checkbox"><label for="pdPromptCache" title="Enable prompt caching where the provider supports it (Anthropic system prompt). OpenAI-compatible APIs usually cache automatically.">Prompt caching</label></div>
+  <div class="chk"><input id="pdVision" type="checkbox"><label for="pdVision" title="The model can see images. Lets the agent look at browser screenshots and attachments.">Image input</label></div>
+  <div id="pdThinkWrap"><div class="chk"><input id="pdThink" type="checkbox"><label for="pdThink" title="Claude models: use extended thinking and show the reasoning.">Extended thinking</label></div><label for="pdBudget">Thinking budget</label><input id="pdBudget" type="number" min="1024" step="512"></div>
+  <p id="pdMsg" class="hint" role="status"></p>
+  <div class="actions"><button id="pdTest" class="btn" type="button">Test connection</button><span class="sp"></span><button id="pdCancel" class="btn" type="button">Cancel</button><button id="pdSave" class="btn primary" type="button">Save</button></div>
+</dialog>
+
+<!-- One-line text input used by the explorer's right-click actions (rename, new file/folder).
+     A real dialog instead of window.prompt(), which Electron does not support. -->
+<dialog id="ctxDlg">
+  <h2 id="ctxDlgTitle">Rename</h2>
+  <input id="ctxDlgInput" type="text" autocomplete="off" spellcheck="false" aria-label="Name">
+  <p id="ctxDlgMsg" class="hint" role="status"></p>
+  <div class="actions"><button id="ctxDlgCancel" class="btn" type="button">Cancel</button><button id="ctxDlgOk" class="btn primary" type="button">OK</button></div>
+</dialog>
+
+<!-- Folder picker (a folder on the computer where the bridge runs) -->
+<dialog id="fpDlg">
+  <h2>Open folder</h2>
+  <div class="row"><button id="fpUp" class="btn sm" type="button" title="Go up one level">&uarr; Up</button><input id="fpPath" type="text" autocomplete="off" aria-label="Folder path"><button id="fpGo" class="btn sm" type="button">Go</button></div>
+  <div id="fpPlaces" class="fpplaces"></div>
+  <div id="fpList" class="fplist" aria-label="Folders"></div>
+  <p id="fpMsg" class="hint" role="status"></p>
+  <div class="actions"><button id="fpClose" class="btn danger sm" type="button" hidden>Close current folder</button><span class="sp"></span><button id="fpCancel" class="btn" type="button">Cancel</button><button id="fpSelect" class="btn primary" type="button">Open this folder</button></div>
+</dialog>
+
+
+<script src="js/app.js"></script>
+<script>
+/* Startup safety net (3.13.18): the splash is normally closed by the app bundle after 3.6s.
+   If a startup JavaScript error ever kills the bundle first, force the splash away so the
+   workspace is still reachable and the failure is visible in DevTools instead of the app
+   being stuck on the welcome screen forever. */
+setTimeout(function () {
+  var s = document.getElementById('codespaceSplash');
+  if (s && !s.hidden) {
+    s.hidden = true;
+    console.warn('CodeSpace: splash force-closed by the startup safety net. Open DevTools (F12) for the underlying error.');
+  }
+}, 8000);
+</script>
+
+<dialog id="extWebviewDlg" class="ext-webview-dialog" aria-labelledby="extWebviewTitle">
+  <div class="ext-webview-head"><strong id="extWebviewTitle">Extension View</strong><span class="sp"></span><button id="extWebviewClose" class="btn sm" type="button" aria-label="Close extension view">✕</button></div>
+  <iframe id="extWebviewFrame" title="VS Code extension webview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+</dialog>
+</body>
+</html>

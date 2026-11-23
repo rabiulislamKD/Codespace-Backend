@@ -17,10 +17,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Gravity
 import android.view.KeyEvent
-import android.view.ActionMode
-import android.view.Menu
-import android.view.MenuItem
-import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
 import android.webkit.*
 import android.widget.*
@@ -207,37 +203,9 @@ class MainActivity : Activity() {
         }
     }
 
-    private val browserSelectionAttach = java.util.Collections.synchronizedMap(java.util.WeakHashMap<WebView, (String) -> Unit>())
-
-    /**
-     * android.webkit.WebView has no public custom selection ActionMode API
-     * (setCustomSelectionActionModeCallback exists on TextView only), so the
-     * selection actions are offered from the long-press handler in newWebView().
-     */
-    private fun installSelectionActionMode(web: WebView, attachSelection: (String) -> Unit) {
-        browserSelectionAttach[web] = attachSelection
-    }
-
-    private fun showSelectionMenu(anchor: View, web: WebView) {
-        val selectionJs = "(()=>{const e=document.activeElement;if(e&&/^(INPUT|TEXTAREA)$/.test(e.tagName))return e.value.slice(e.selectionStart||0,e.selectionEnd||0);return String(window.getSelection?window.getSelection().toString():'')})()"
-        web.evaluateJavascript(selectionJs) { raw ->
-            val selected = runCatching { JSONTokener(raw ?: "\"\"").nextValue() as? String }.getOrNull().orEmpty()
-            if (selected.isBlank()) return@evaluateJavascript
-            val popup = android.widget.PopupMenu(this, anchor)
-            popup.menu.add(Menu.NONE, 0x4353, 0, "Attach to chat").setOnMenuItemClickListener {
-                copyToClipboard(selected)
-                browserSelectionAttach[web]?.invoke(selected)
-                popup.dismiss()
-                true
-            }
-            popup.menu.add(Menu.NONE, 0x4354, 1, "Copy").setOnMenuItemClickListener {
-                copyToClipboard(selected)
-                popup.dismiss()
-                true
-            }
-            popup.show()
-        }
-    }
+    // Long press in any WebView is left to Android's native selection/context menu. The old custom
+    // PopupMenu fired on the same gesture, so users saw both "Copy" and "Attach to chat" at once.
+    // Browser content is now attached explicitly from the 📎 button in the browser navigation row.
 
     private fun newWebView(): WebView = WebView(this).apply {
         // Keep native touch scrolling and Android's standard selection handles/context actions.
@@ -246,29 +214,6 @@ class MainActivity : Activity() {
         overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         isNestedScrollingEnabled = true
         setBackgroundColor(0xFFFFFFFF.toInt())
-        installSelectionActionMode(this) { selected -> attachBrowserSelection(selected, url.orEmpty(), title.orEmpty()) }
-        var touchX = 0f
-        var touchY = 0f
-        setOnTouchListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) { touchX = event.x; touchY = event.y }
-            false
-        }
-        setOnLongClickListener { view ->
-            val web = view as? WebView
-            if (web == null || web.hitTestResult.type != WebView.HitTestResult.UNKNOWN_TYPE) false
-            else {
-                val density = resources.displayMetrics.density.coerceAtLeast(1f)
-                val x = (touchX / density).toInt().coerceIn(0, 10000)
-                val y = (touchY / density).toInt().coerceIn(0, 10000)
-                val inspect = "(()=>{try{const s=String(window.getSelection?window.getSelection().toString():'');if(s.trim())return JSON.stringify({selected:true});const e=document.elementFromPoint($x,$y);if(!e)return JSON.stringify({error:'No element at this position'});const path=[];for(let n=e;n&&n.nodeType===1&&path.length<7;n=n.parentElement){let q=n.tagName.toLowerCase();if(n.id){q+='#'+CSS.escape(n.id);path.unshift(q);break}const c=[...n.parentElement?.children||[]].filter(v=>v.tagName===n.tagName);if(c.length>1)q+=':nth-of-type('+(c.indexOf(n)+1)+')';path.unshift(q)}const a={};for(const z of [...e.attributes].slice(0,20))a[z.name]=z.value.slice(0,500);const r=e.getBoundingClientRect();return JSON.stringify({kind:'element',page:{url:location.href,title:document.title},selector:path.join(' > '),tag:e.tagName,label:(e.getAttribute('aria-label')||e.getAttribute('title')||e.tagName).slice(0,160),text:(e.innerText||e.textContent||'').trim().slice(0,5000),html:(e.outerHTML||'').slice(0,5000),htmlTruncated:(e.outerHTML||'').length>5000,attrs:a,href:e.href||'',value:('value'in e?String(e.value):'').slice(0,2000),rect:{x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height)},ancestors:path})}catch(e){return JSON.stringify({error:String(e)})}})()"
-                web.evaluateJavascript(inspect) { raw ->
-                    val payload = runCatching { JSONObject(JSONTokener(raw ?: "{}")) }.getOrNull()
-                    if (payload != null && payload.optBoolean("selected")) showSelectionMenu(view, web)
-                    else if (payload != null && !payload.has("error")) showBrowserElementMenu(web, payload)
-                }
-                false
-            }
-        }
         setOnCreateContextMenuListener { menu, view, _ ->
             val web = view as? WebView ?: return@setOnCreateContextMenuListener
             val hit = web.hitTestResult ?: return@setOnCreateContextMenuListener
@@ -278,14 +223,6 @@ class MainActivity : Activity() {
             val isLink = hit.type == WebView.HitTestResult.ANCHOR_TYPE || hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE
             if (!isImage && !isLink) return@setOnCreateContextMenuListener
             menu.setHeaderTitle(if (isImage) "Image" else "Link")
-            menu.add("Attach to chat").setOnMenuItemClickListener {
-                val payload = JSONObject().put("kind", "element").put("page", JSONObject().put("url", web.url ?: "").put("title", web.title ?: ""))
-                    .put("selector", if (isImage) "img[src=${JSONObject.quote(hitUrl)}]" else "a[href=${JSONObject.quote(hitUrl)}]")
-                    .put("tag", if (isImage) "IMG" else "A").put("label", if (isImage) "Image" else "Link")
-                    .put("href", hitUrl).put("text", hitUrl).put("html", "").put("rect", JSONObject().put("x", 0).put("y", 0).put("width", 0).put("height", 0))
-                attachBrowserElement(payload)
-                true
-            }
             menu.add("Copy address").setOnMenuItemClickListener { copyToClipboard(hitUrl); true }
             if (isImage) menu.add("Open image").setOnMenuItemClickListener { web.loadUrl(hitUrl); true }
         }
@@ -597,7 +534,6 @@ class MainActivity : Activity() {
             settings.setSupportZoom(false)
             settings.builtInZoomControls = false
             addJavascriptInterface(NativeAgentBridge(), "CodeSpaceNative")
-            installSelectionActionMode(this) { selected -> attachEditorCodeSelection(selected) }
             webChromeClient = object : WebChromeClient() {
                 override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                     val level = message.messageLevel()
@@ -680,27 +616,14 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showBrowserElementMenu(web: WebView, payload: JSONObject) {
-        runOnUiThread {
-            val popup = PopupMenu(this, web)
-            popup.menu.add("Attach element to chat").setOnMenuItemClickListener { attachBrowserElement(payload); true }
-            val text = payload.optString("text").take(100000)
-            if (text.isNotBlank()) popup.menu.add("Copy text").setOnMenuItemClickListener { copyToClipboard(text); true }
-            val html = payload.optString("html").take(100000)
-            if (html.isNotBlank()) popup.menu.add("Copy element HTML").setOnMenuItemClickListener { copyToClipboard(html); true }
-            val href = payload.optString("href")
-            if (href.isNotBlank()) popup.menu.add("Copy link address").setOnMenuItemClickListener { copyToClipboard(href); true }
-            popup.show()
-        }
-    }
-
     private fun updateBrowserUi(url: String, title: String, loading: Boolean) {
         if (!::appWeb.isInitialized) return
         val u = JSONObject.quote(url)
         val t = JSONObject.quote(title)
         val state = if (loading) "Native Android browser · loading" else "Native Android browser · page loaded"
         val st = JSONObject.quote(state)
-        appWeb.evaluateJavascript("(()=>{const a=document.getElementById('bAddr'),t=document.getElementById('bTabTitle'),i=document.getElementById('bInfo'),s=document.getElementById('bStreamStatus'),e=document.getElementById('bEmpty');if(a&&document.activeElement!==a)a.value=$u;if(t)t.textContent=$t||'Website';if(i)i.textContent=($t?$t+' · ':'')+$u;if(s)s.textContent=$st;if(e)e.hidden=true})()", null)
+        val secure = JSONObject.quote(if (url.startsWith("https:")) "🔒" else "ⓘ")
+        appWeb.evaluateJavascript("(()=>{const a=document.getElementById('bAddr'),t=document.getElementById('bTabTitle'),i=document.getElementById('bInfo'),s=document.getElementById('bStreamStatus'),e=document.getElementById('bEmpty'),q=document.getElementById('bSecureIcon');if(a&&document.activeElement!==a)a.value=$u;if(q)q.textContent=$secure;if(t)t.textContent=$t||'Website';if(i)i.textContent=($t?$t+' · ':'')+$u;if(s)s.textContent=$st;if(e)e.hidden=true})()", null)
     }
 
     private fun copyToClipboard(value: String) {
@@ -1847,6 +1770,23 @@ class MainActivity : Activity() {
         @JavascriptInterface fun browserBack() { runOnUiThread { currentBrowser()?.let { if (it.canGoBack()) it.goBack() } } }
         @JavascriptInterface fun browserForward() { runOnUiThread { currentBrowser()?.let { if (it.canGoForward()) it.goForward() } } }
         @JavascriptInterface fun browserReload() { runOnUiThread { currentBrowser()?.reload() } }
+        /** Explicit 📎 action: attaches the current selection, or a bounded page excerpt. */
+        @JavascriptInterface fun attachBrowserSelection() {
+            val js = "(()=>{try{const s=String(window.getSelection?window.getSelection().toString():'').trim();const a=document.activeElement;let v='';if(a&&/^(INPUT|TEXTAREA)$/.test(a.tagName)){try{v=String(a.value||'').slice(a.selectionStart||0,a.selectionEnd||0)}catch(e){}}const sel=(s||v).trim();return JSON.stringify({text:(sel||String(document.body?.innerText||'').trim().slice(0,12000)).slice(0,30000),url:location.href,title:document.title||'',selected:!!sel})}catch(e){return JSON.stringify({text:'',url:location.href,title:document.title||'',selected:false})}})()"
+            try {
+                val raw = browserEvaluate(js)
+                val outer = JSONTokener(raw).nextValue() as? String ?: return
+                val p = JSONObject(outer)
+                val text = p.optString("text").trim()
+                if (text.isBlank()) { runOnUiThread { status.text = "Nothing to attach from this page" }; return }
+                val payload = JSONObject().put("kind", if (p.optBoolean("selected")) "selection" else "page")
+                    .put("text", text)
+                    .put("page", JSONObject().put("url", p.optString("url")).put("title", p.optString("title")))
+                attachBrowserElement(payload)
+            } catch (e: Exception) {
+                runOnUiThread { status.text = "Could not attach browser content: ${e.message?.take(160).orEmpty()}" }
+            }
+        }
         @JavascriptInterface fun browserClear() { runOnUiThread { currentBrowser()?.loadUrl("about:blank"); status.text = "Browser tab cleared" } }
         @JavascriptInterface fun browserClose() { closeAllBrowserTabs() }
         @JavascriptInterface fun browserClick(selector: String) { browserAgentClick("legacy", selector) }

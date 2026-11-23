@@ -11,16 +11,16 @@ test('Android package preserves the CodeSpace 3.18.4 HTML shell with native UI a
   const coreHtml = fs.readFileSync(path.join(core, 'my-chat-agent-v3.html'), 'utf8');
   const androidHtml = fs.readFileSync(path.join(assets, 'index.html'), 'utf8');
   // Keep the shared application shell and feature surface. Android intentionally adds
-  // native-only controls (Open folder, browser minimize/fullscreen, sandbox selector)
-  // and removes the address/navigation row handled by the native WebView.
+  // native-only controls (Open folder, browser minimize/fullscreen, sandbox selector,
+  // explicit browser attach button). The address/navigation row is kept in the DOM so
+  // users can type a URL; the native WebView is bounded strictly below it.
   for (const marker of ['id="titlebar"', 'id="side"', 'id="tree"', 'id="chatPane"', 'id="composer"', 'id="provQuick"']) {
     assert.ok(coreHtml.includes(marker), `desktop shell retains ${marker}`);
     assert.ok(androidHtml.includes(marker), `Android shell retains ${marker}`);
   }
-  for (const marker of ['id="expOpen"', 'id="bMin"', 'id="bMax"', 'id="sandboxSel"']) {
+  for (const marker of ['id="expOpen"', 'id="bMin"', 'id="bMax"', 'id="sandboxSel"', 'id="bAddr"', 'id="bGo"', 'id="bAttach"', 'id="bSecureIcon"']) {
     assert.ok(androidHtml.includes(marker), `Android shell adds ${marker}`);
   }
-  assert.doesNotMatch(androidHtml, /id="bAddr"/);
 });
 
 test('Android bundle retains the core CodeSpace feature surface with explicit native adaptations', () => {

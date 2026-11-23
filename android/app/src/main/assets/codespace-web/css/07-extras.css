@@ -1,0 +1,497 @@
+
+/* ===== Theme-aware chat polish ===== */
+html[data-theme="light"]{color-scheme:light}
+html[data-theme="dark"]{color-scheme:dark}
+@media(prefers-color-scheme:dark){html[data-theme="auto"]{color-scheme:dark}}
+@media(prefers-color-scheme:light){html[data-theme="auto"]{color-scheme:light}}
+#chatPane{position:relative}
+#chat{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--muted) 36%,transparent) transparent;overscroll-behavior:contain;scroll-behavior:auto}
+#chat::-webkit-scrollbar{width:8px}
+#chat::-webkit-scrollbar-track{background:transparent}
+#chat::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:99px;background:color-mix(in srgb,var(--muted) 34%,transparent);background-clip:padding-box}
+#chat::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--muted) 58%,transparent);background-clip:padding-box}
+/* Browser controls use the app palette; the website viewport itself remains site-owned. */
+.chrome-dots{display:none!important}
+.chrome-tabstrip{align-items:center;padding-left:12px;padding-right:12px;background:var(--tabbg);border-color:var(--line)}
+.chrome-tabactive{border-bottom-color:var(--bg);box-shadow:0 -1px 0 color-mix(in srgb,var(--accent) 30%,transparent) inset;transition:background-color .16s,border-color .16s}
+.chrome-tabactive button{transition:background-color .16s,color .16s}
+.chrome-tabactive button:active{background:var(--sel)}
+.chrome-navbtn{transition:background-color .12s,color .12s}
+.chrome-navbtn:active{background:var(--sel)}
+#bview{background:var(--bg);color:var(--ink);overscroll-behavior:contain}
+#bview[data-mode="chrome"]{background:var(--code);color:var(--ink)}
+#bview #bEmpty{background:var(--bg);color:var(--muted)}
+#bview[data-mode="chrome"] #bImg{border:1px solid color-mix(in srgb,var(--line) 75%,transparent);border-radius:3px;box-shadow:0 8px 28px color-mix(in srgb,var(--ink) 18%,transparent)}
+#bp .diagbar{background:var(--tabbg);border:1px solid var(--line);border-top:0;border-radius:0 0 8px 8px;margin:0;padding:4px 8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#bp .diagbar .btn{height:26px;padding:0 10px;font-size:11px;border-radius:5px;border:1px solid var(--line);background:var(--bg);color:var(--ink);transition:background .12s,border-color .12s}
+#bp .diagbar .btn:hover{background:var(--hover);border-color:var(--accent)}
+#bp .diagbar .btn.on{background:color-mix(in srgb,var(--accent) 14%,transparent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line));color:var(--accent)}
+#bStreamStatus{font-size:11px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+@media(max-width:700px){.chrome-tabstrip{padding-left:8px;padding-right:8px}.chrome-tabactive{min-width:100px;max-width:65%;padding:0 8px}.chrome-dots{gap:3px}.chrome-dots i{width:7px;height:7px}}
+
+
+
+/* ===== Composer redesign: rounded card, two-row toolbar, everything always visible ===== */
+.cbox{container-type:inline-size;container-name:composer;border:1px solid var(--line);border-radius:14px;background:var(--input);box-shadow:0 1px 2px rgba(0,0,0,.05);transition:border-color .15s ease,box-shadow .15s ease}
+.cbox:focus-within{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent)}
+.ctool{display:flex;flex-direction:column;min-width:0}
+.crow{display:flex;flex-wrap:nowrap!important;white-space:nowrap;min-width:0;align-items:center;gap:2px;padding:0 8px}
+.crow-top{padding-top:0;padding-bottom:2px}
+.crow-bot{padding-bottom:9px}
+.crow>*{flex:0 0 auto;min-width:0}
+.crow>.sp{flex:1 1 0;min-width:0}
+.crow select{height:24px;border:0;background:transparent;color:var(--muted);font-size:11.5px;padding:2px 3px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crow select:hover{color:var(--ink);background:var(--hover)}
+.crow select#modeSel{max-width:76px}
+.crow select#provQuick{max-width:150px;flex:0 1 auto}
+.crow #chatZaiBtn.on{color:var(--accent)}
+.crow select#thinkSel{max-width:112px}
+.crow #thinkState{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--muted)}.crow #thinkState[data-state="confirmed"]{color:var(--ok)}.crow #thinkState[data-state="warning"],.crow #thinkState[data-state="unsupported"]{color:var(--warn)}
+.crow>#attachBtn,.crow>#ctxRing,.crow>#permWrap .perm-btn{
+  width:26px;height:24px;min-width:26px;padding:0;border:0;border-radius:6px;
+  background:transparent!important;background-image:none!important;box-shadow:none!important;
+  color:var(--muted);display:inline-grid;place-items:center;cursor:pointer;
+  transition:color .12s ease,background-color .12s ease;outline-offset:2px
+}
+.crow>#attachBtn:hover,.crow>#ctxRing:hover,.crow>#permWrap .perm-btn:hover,
+.crow>#permWrap .perm-btn[aria-expanded="true"]{background:var(--hover)!important;color:var(--ink)!important;border-color:transparent!important}
+.crow>#permWrap .perm-btn[data-mode="all"]{color:var(--err)!important}
+.crow>#permWrap .perm-btn[data-mode="auto"]{color:var(--accent)!important}
+.attach-icon-only{font-size:17px;line-height:1}
+.perm-btn svg{width:16px;height:16px}
+.perm-btn .perm-chevron{display:none}
+.tgl{display:inline-flex;align-items:center;gap:5px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--muted);padding:0 5px 0 4px;font-size:11.5px;cursor:pointer;white-space:nowrap;transition:color .12s ease,background-color .12s ease}
+.tgl:hover{background:var(--hover);color:var(--ink)}
+.tgl .knob{width:20px;height:12px;border-radius:7px;background:var(--line);position:relative;transition:background .15s;flex:none}
+.tgl .knob::after{content:"";position:absolute;top:2px;left:2px;width:8px;height:8px;border-radius:50%;background:var(--bg);transition:transform .15s}
+.tgl.on{color:var(--ink)}
+.tgl.on .knob{background:var(--accent)}
+.tgl.on .knob::after{transform:translateX(8px)}
+.tgl.notready{opacity:.55}
+.ring{width:24px;height:24px;padding:2px;border-radius:6px;background:transparent;border:0;display:grid;place-items:center;cursor:pointer;color:var(--muted)}
+.ring:hover{background:var(--hover);color:var(--ink)}
+.ring svg{width:19px;height:19px;display:block}
+.busytxt{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto;max-width:190px}
+.sendSlot .sbtn{width:30px;height:30px;flex:none;border-radius:50%;border:0;font-size:16px;line-height:1;display:grid;place-items:center;transition:filter .12s ease,transform .12s ease}
+.sendSlot .sbtn svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sendSlot #sendBtn{background:linear-gradient(145deg,var(--accent),color-mix(in srgb,var(--accent) 80%,#000));color:var(--accent-ink);box-shadow:0 2px 8px color-mix(in srgb,var(--accent) 35%,transparent)}
+.sendSlot #sendBtn:hover{filter:brightness(1.08)}
+.sendSlot #sendBtn:active{transform:scale(.94)}
+.sendSlot #stopBtn{background:var(--err);color:var(--accent-ink)}
+.sendSlot #stopBtn:hover{filter:brightness(1.08)}
+.sendSlot #stopBtn svg{fill:currentColor;stroke:none}
+.sendSlot .sbtn:focus-visible,.crow select:focus-visible,.tgl:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+/* Narrow chat pane: controls shrink (model name, status text) but NOTHING is hidden and nothing wraps. */
+@container composer (max-width:430px){.crow select#provQuick{max-width:96px}.crow select#sandboxSel{max-width:94px}.crow select#thinkSel{max-width:88px}.crow #thinkState{max-width:74px}}
+@media(prefers-reduced-motion:reduce){.sendSlot .sbtn,.crow>*,.tgl,.tgl .knob,.tgl .knob::after{transition:none!important}}
+
+
+/* ===== Theme-native, borderless conversation messages ===== */
+/* User and model message containers inherit the active chat theme. */
+.umsg,
+.amsg,
+.amsg .abody {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.umsg {
+  border-radius: 0 !important;
+  padding: 8px 0 !important;
+  color: var(--ink);
+}
+.amsg { border-radius: 0 !important; }
+.amsg .abody { color: var(--ink); }
+/* ===== Phase 3Q UI polish (CSS only, theme-aware) ===== */
+:root{--radius:8px;--shadow:0 1px 2px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.06);--ring:color-mix(in srgb,var(--accent) 35%,transparent)}
+html[data-theme="dark"]{--shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.28)}
+@media (prefers-color-scheme:dark){html[data-theme="auto"]{--shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.28)}}
+body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:10px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--muted);background-clip:content-box;border:2px solid transparent}
+.btn,.abtn,.card,.li{transition:background-color .15s,border-color .15s,box-shadow .15s,color .15s,transform .1s}
+.btn{border-radius:6px;font-weight:500}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.btn.primary{box-shadow:0 1px 0 rgba(0,0,0,.12)}
+input[type=text],input[type=password],input[type=number],select,textarea.fld{border-radius:6px;transition:border-color .15s,box-shadow .15s}
+input[type=text]:focus,input[type=password]:focus,input[type=number]:focus,select:focus,textarea.fld:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--ring)}
+.abtn{position:relative;border-left-width:3px}
+.abtn:hover{background:var(--hover)}
+.abtn.on{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.vh{position:sticky;top:0;z-index:2;background:var(--side);font-weight:600;border-bottom:1px solid var(--line);padding:10px 12px}
+.sect h4{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.card{border-radius:var(--radius);padding:12px;box-shadow:var(--shadow)}
+.card:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.card h4{font-weight:600;flex-wrap:wrap}
+.card h4 .hint{margin:0;padding:1px 8px;border-radius:999px;background:var(--hover);font-size:11px;font-weight:500;color:var(--muted)}
+.card code{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-family:var(--mono)}
+.card .row{margin-top:8px}
+.li{border-radius:6px;margin:0 6px;padding:7px 8px;border-bottom:0}
+.li.cur{box-shadow:inset 2px 0 0 var(--accent)}
+.hint:empty{display:none}
+#split{transition:background-color .15s}
+#split:hover{background:var(--accent)}
+@media (max-width:900px){.btn{min-height:32px}input[type=text],select{min-height:34px}}
+@media (prefers-reduced-motion:reduce){.btn,.abtn,.card,.li,input,select,textarea{transition:none!important}}
+/* ===== 3.13.2 VS Code-style marketplace list — clean rows, no descriptions ===== */
+.ext-mkt-list{display:flex;flex-direction:column;gap:1px;margin:6px 0 2px}
+/* ===== 3.13.3 Recommended caption + "+ GitHub" clone box ===== */
+.ext-mkt-cap{margin:8px 0 0;padding:0;font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+#extGitBox{margin-top:4px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--accent) 4%,var(--bg))}
+#extGitBox input{margin-top:2px}
+#extGitBox .row{gap:8px}
+.ext-mkt-row{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;min-height:50px;transition:background .12s ease}
+.ext-mkt-row:hover{background:var(--hover)}
+.ext-mkt-icon{width:36px;height:36px;flex:0 0 36px;border-radius:6px;object-fit:contain;background:var(--code);border:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
+.ext-mkt-main{flex:1;min-width:0}
+.ext-mkt-title{font-size:13px;font-weight:550;color:var(--ink);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;word-break:break-word}
+.ext-mkt-pub{font-size:11.5px;color:var(--muted);line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ext-mkt-row .btn{flex:none;min-height:28px;padding:3px 11px;border-radius:6px}
+.ext-mkt-row .btn:disabled{opacity:.75;cursor:default;background:color-mix(in srgb,#3c9b75 14%,var(--bg));color:#2f8a66;border-color:color-mix(in srgb,#3c9b75 45%,var(--line))}
+/* Installed extensions: minimal cards — name + status dot + Uninstall, nothing else. */
+#extList{display:flex;flex-direction:column;gap:8px;margin:8px 0 4px}
+.ext-installed-card{display:flex;align-items:center;gap:10px;padding:9px 12px;min-width:0;
+  border:1px solid var(--line);border-radius:10px;background:var(--bg);
+  box-shadow:0 1px 2px color-mix(in srgb,var(--ink) 5%,transparent);transition:border-color .16s,box-shadow .16s}
+.ext-installed-card:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));box-shadow:0 2px 8px color-mix(in srgb,var(--ink) 8%,transparent)}
+.ext-installed-card .dot{flex:0 0 auto;margin:0!important}
+.ext-installed-name{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:13px;line-height:1.4}
+.ext-installed-card .btn.danger{flex:0 0 auto;min-height:28px;padding:3px 10px;border-radius:6px}
+@media(max-width:560px){.ext-installed-card{flex-wrap:wrap}}
+/* 3.13.4: downloaded .vsix cards expand on click into a details view (description,
+   publisher/file identity, engine requirement, and the honest "stored package" note). */
+.ext-installed-card.ext-vsix{display:block;padding:0}
+.ext-vsix .ext-installed-row{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer}
+.ext-vsix .ext-installed-row:hover{background:var(--hover)}
+.ext-vsix-caret{flex:0 0 auto;color:var(--muted);font-size:11px;transition:transform .15s ease}
+.ext-vsix-badge{flex:0 0 auto;font-size:10.5px;font-weight:600;line-height:1;padding:3px 8px;border-radius:9px;color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,var(--code));border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);white-space:nowrap}
+@media(max-width:760px){.ext-vsix-badge{display:none}}
+.ext-vsix.open .ext-vsix-caret{transform:rotate(90deg)}
+.ext-vsix-detail{padding:2px 12px 11px 32px;border-top:1px dashed color-mix(in srgb,var(--line) 80%,transparent)}
+.ext-vsix-detail p{margin:8px 0 0;font-size:12px;line-height:1.5}
+.ext-vsix-desc{color:var(--ink)}
+.ext-vsix-meta{color:var(--muted);overflow-wrap:anywhere}
+.ext-vsix-note{color:var(--muted);background:var(--code);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+@media(prefers-reduced-motion:reduce){.ext-mkt-row{transition:none!important}}
+/* ===== Phase 3R PWA ===== */
+@supports (height:100dvh){#app{height:100dvh}}
+@media (display-mode:standalone),(display-mode:window-controls-overlay){
+  #app{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+}
+html{-webkit-text-size-adjust:100%}
+body{overscroll-behavior:none}
+@media (max-width:900px){input,textarea,select{font-size:16px}} /* stops iOS zoom-on-focus */
+#pwaBox .row{margin-top:6px}
+/* ===== end Phase 3R PWA ===== */
+
+
+/* ===== 3.13.14 Installed Tools manager + compact CodeSpace extension list ===== */
+.ext-install-bar{display:flex;gap:8px;align-items:center;padding:8px 0 12px}
+.ext-install-bar input{flex:1;min-width:0}
+#extList{display:flex;flex-direction:column;gap:7px;margin:4px 0}
+.ext-installed-card .tool-version{font-size:11px;color:var(--muted);white-space:nowrap}
+.tools-list{display:flex;flex-direction:column;gap:8px}
+.tool-manager-row{display:flex;align-items:center;gap:10px;min-width:0;padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+.tool-manager-main{flex:1;min-width:0}
+.tool-manager-name{font-size:13px;font-weight:650;overflow-wrap:anywhere}
+.tool-manager-version{font-size:11px;color:var(--muted);margin-top:2px}
+.tool-update-state{font-size:11px;color:var(--muted);white-space:nowrap}
+.tool-update-state.available{color:var(--warn);font-weight:650}
+.tool-manager-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.tool-manager-actions .btn{min-height:27px;padding:3px 8px}
+.tools-history-head{font-size:12px;font-weight:650;margin:18px 0 7px;padding-top:12px;border-top:1px solid var(--line)}
+.tools-history{display:flex;flex-direction:column;gap:5px}
+.tools-history-row{font-size:11px;color:var(--muted);padding:5px 2px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);overflow-wrap:anywhere}
+.tools-empty{font-size:12px;color:var(--muted);padding:12px 2px}
+@media(max-width:640px){.tool-manager-row{flex-wrap:wrap}.tool-update-state{order:3}.tool-manager-actions{width:100%;justify-content:flex-start}}
+
+/* ===== 3.13.17 polish: menu bar, status bar, surfaces ===== */
+:root{--status-hover:color-mix(in srgb,var(--accent) 22%,transparent);--menu-bg:var(--act)}
+body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:color-mix(in srgb,var(--accent) 38%,transparent)}
+*{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--muted) 38%,transparent) transparent}
+*::-webkit-scrollbar{width:9px;height:9px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--muted) 34%,transparent);border:2px solid transparent;border-radius:99px;background-clip:padding-box}
+*::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--muted) 58%,transparent);background-clip:padding-box}
+
+#menubar{grid-column:1/-1;grid-row:1;height:30px;min-height:30px;flex:none;display:flex;align-items:stretch;gap:1px;padding:0 6px;background:var(--menu-bg);border-bottom:1px solid var(--line);color:var(--ink);font-size:12.5px;user-select:none;min-width:0}
+.mb-title{background:transparent;border:0;border-radius:5px;margin:3px 0;padding:0 10px;color:var(--ink);font-size:12.5px;white-space:nowrap;transition:background .12s ease}
+.mb-title:hover,.mb-title.open{background:var(--hover)}
+.mb-title.open{box-shadow:inset 0 -2px 0 var(--accent)}
+.mb-drop{position:fixed;z-index:100000;min-width:262px;max-width:min(360px,96vw);max-height:calc(100vh - 70px);overflow:auto;padding:5px;background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.28),0 2px 6px rgba(0,0,0,.18)}
+.mb-drop[hidden]{display:none}
+.mb-item{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:6px;width:100%;padding:6px 10px 6px 6px;border:0;border-radius:6px;background:transparent;color:var(--ink);text-align:left;font-size:12.5px;white-space:nowrap}
+.mb-item:hover:not(:disabled),.mb-item:focus-visible{background:var(--accent);color:var(--accent-ink);outline:none}
+.mb-item:hover:not(:disabled) .mb-k,.mb-item:focus-visible .mb-k{color:inherit;opacity:.85}
+.mb-item:disabled{opacity:.42;cursor:default}
+.mb-ck{text-align:center;font-size:12px;color:var(--accent)}
+.mb-item:hover:not(:disabled) .mb-ck,.mb-item:focus-visible .mb-ck{color:inherit}
+.mb-k{color:var(--muted);font-size:11.5px;padding-left:18px}
+.mb-sep{height:1px;margin:5px 6px;background:var(--line)}
+
+#statusbar{border-top:1px solid color-mix(in srgb,var(--accent) 18%,var(--line));font-size:12px;letter-spacing:.01em}
+#statusbar button{border-radius:4px;transition:background .12s ease,color .12s ease;opacity:.92}
+#statusbar button:hover{background:var(--status-hover);opacity:1}
+#statusbar button:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+
+#activity{background:var(--act)}
+.abtn{transition:color .12s ease,background .12s ease}
+.abtn:hover{background:color-mix(in srgb,var(--hover) 80%,transparent)}
+.abtn.on{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+#side,#chatPane{background-image:none}
+.vh{color:color-mix(in srgb,var(--muted) 90%,var(--ink))}
+.btn{border-radius:6px;transition:background .12s ease,border-color .12s ease,filter .12s ease}
+.btn:hover{border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+.btn.primary:hover{border-color:var(--accent)}
+input[type=text],input[type=password],input[type=number],input[type=search],select,textarea.fld{border-radius:6px;transition:border-color .12s ease,box-shadow .12s ease}
+input[type=text]:focus,input[type=password]:focus,input[type=number]:focus,input[type=search]:focus,select:focus,textarea.fld:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--ring);outline:none}
+dialog{border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+dialog::backdrop{background:rgba(8,10,14,.5);backdrop-filter:blur(2px)}
+.tab{transition:background .12s ease,color .12s ease}
+#split,#sideSplit{transition:background .15s ease}
+a{color:color-mix(in srgb,var(--accent) 88%,var(--ink))}
+
+/* 3.13.21: grouped model picker (button + popup) replacing the squeezed native <select> popup */
+.crow .modelbtn{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:170px;min-width:0;flex:0 1 auto;padding:2px 6px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:11.5px;cursor:pointer;white-space:nowrap}
+.crow .modelbtn:hover:not(:disabled){color:var(--ink);background:var(--hover)}
+.crow .modelbtn:disabled{opacity:.55;cursor:not-allowed}
+.crow .modelbtn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.modelbtn .mb-txt{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.modelbtn .mb-chev{font-size:9px;opacity:.7;flex:none}
+.modelbtn .mb-tier{width:7px;height:7px;border-radius:50%;flex:none;background:var(--muted);opacity:.5}
+.modelbtn .mb-tier[data-tier="free"]{background:var(--ok,#3fb950);opacity:1}
+.modelbtn .mb-tier[data-tier="paid"]{background:var(--warn,#d29922);opacity:1}
+.modelbtn .mb-tier[data-tier="auto"]{background:var(--accent);opacity:1}
+@container composer (max-width:430px){.crow .modelbtn{max-width:110px}}
+.provmenu{position:fixed;z-index:100001;display:flex;flex-direction:column;min-width:260px;overflow:hidden;background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 34px rgba(0,0,0,.38)}
+.provmenu[hidden]{display:none}
+.provmenu .pm-search{flex:none;width:auto;margin:6px;padding:5px 8px;font-size:12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.provmenu .pm-list{flex:1 1 auto;overflow:auto;padding:0 4px 6px;overscroll-behavior:contain}
+.provmenu .pm-head{position:sticky;top:0;z-index:1;margin:4px -4px 2px;padding:5px 12px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--input);border-bottom:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
+.provmenu .pm-item{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:6px;width:100%;padding:5px 8px;border:0;border-radius:6px;background:transparent;color:var(--ink);text-align:left;font-size:12px;cursor:pointer}
+.provmenu .pm-item:hover,.provmenu .pm-item:focus-visible{background:var(--hover);outline:none}
+.provmenu .pm-item[aria-selected="true"]{background:var(--sel)}
+.provmenu .pm-check{color:var(--accent);font-size:11px;text-align:center}
+.provmenu .pm-main{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.provmenu .pm-sub{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--muted)}
+.provmenu .pm-empty{padding:14px 12px;font-size:12px;color:var(--muted)}
+
+/* 3.13.22 clean UI: short labels; long help lives in a "?" tooltip */
+.li.prov{align-items:center;padding:5px 8px}
+.li.prov .dot{margin-top:0!important}
+.li.prov .info b{font-weight:600}
+.li.prov .btn{padding:0 8px;font-size:12px}
+.pg-card{padding:7px 10px;gap:4px}
+.pg-card .pgn{display:flex;align-items:center;justify-content:space-between;gap:4px}
+
+
+/* ===== 3.15.0 Persistent Task Center ===== */
+.task-center-dialog{width:min(760px,calc(100vw - 28px));max-width:760px;max-height:min(82vh,820px);padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--side);color:var(--ink);box-shadow:0 18px 60px rgba(0,0,0,.28)}
+.task-center-dialog::backdrop{background:rgba(0,0,0,.48)}
+.task-center-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.task-center-head h2{margin:0;font-size:17px;font-weight:650}
+.task-queue-form{padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+.task-queue-form label{display:block;font-size:12px;font-weight:650;margin-bottom:6px}
+.task-queue-form textarea{width:100%;resize:vertical;min-height:58px}
+.task-queue-form .actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}
+.task-center-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:13px 2px 8px}
+.task-center-list{display:flex;flex-direction:column;gap:7px;overflow:auto;max-height:48vh;padding:1px}
+.task-row{display:flex;align-items:center;gap:12px;padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:var(--bg);min-width:0}
+.task-main{flex:1;min-width:0}.task-title{font-size:13px;font-weight:650;overflow-wrap:anywhere;margin:3px 0}.task-meta{font-size:10.5px;color:var(--muted);overflow-wrap:anywhere;line-height:1.45}
+.task-status{display:inline-flex;font-size:10px;font-weight:650;padding:2px 7px;border-radius:999px;background:var(--hover);color:var(--muted)}
+.task-status.running{color:var(--accent)}.task-status.completed{color:#29956d}.task-status.interrupted,.task-status.error,.task-status.cancelled,.task-status.tool-limit,.task-status.repeat-limit{color:var(--warn)}
+.task-actions{display:flex;gap:5px;align-items:center;justify-content:flex-end;flex-wrap:wrap}.task-actions .btn{min-height:27px;padding:3px 8px;white-space:nowrap}.task-empty{padding:26px 12px;text-align:center;color:var(--muted);font-size:12px}
+@media(max-width:600px){.task-center-dialog{padding:12px}.task-row{align-items:flex-start;flex-direction:column}.task-actions{width:100%;justify-content:flex-start}.task-queue-form .actions{align-items:flex-start;flex-direction:column}}
+
+/* 3.15.1 — compact, help-on-demand composer and permission surface */
+.crow-bot{padding-top:2px;padding-bottom:8px;}
+.crow-bot #permWrap{margin-right:2px;}
+.crow-bot #permWrap .perm-btn{width:27px;height:25px;min-width:27px;border:1px solid color-mix(in srgb,var(--line) 72%,transparent);border-radius:7px;background:color-mix(in srgb,var(--side) 76%,var(--input))!important;color:var(--muted);}
+.crow-bot #permWrap .perm-btn:hover,.crow-bot #permWrap .perm-btn[aria-expanded="true"]{border-color:color-mix(in srgb,var(--accent) 42%,var(--line));background:var(--hover)!important;color:var(--ink)!important;}
+.crow-bot #permWrap .perm-btn[data-mode="all"]{color:var(--err)!important;}
+.crow-bot #permWrap .perm-btn[data-mode="auto"]{color:var(--accent)!important;}
+.perm-menu{width:min(258px,calc(100vw - 26px));padding:5px;border-radius:11px;}
+.perm-option{grid-template-columns:21px minmax(0,1fr) 16px;align-items:center;gap:8px;padding:8px 9px;border-radius:8px;}
+.perm-option-copy{display:block;}
+.perm-option-copy b{display:block;font-size:12.5px;font-weight:600;line-height:1.3;}
+.perm-menu-footer{margin-top:5px;padding:5px 3px 0;}
+.perm-manage{text-align:center;padding:7px 8px;font-size:11.5px;border-radius:7px;color:var(--muted);}
+.perm-manage:hover{color:var(--ink);}
+.task-queue-form{padding:11px;border-radius:11px;}
+.task-queue-form .actions{justify-content:flex-end;margin-top:7px;}
+.task-empty{padding:30px 12px;font-size:12px;letter-spacing:.01em;}
+
+.task-queue-label{display:flex;align-items:center;gap:5px;margin-bottom:6px;}
+.task-queue-label label{display:inline-block;margin:0;}
+
+/* 3.16.0 — CodeSpace-compatible VS Code extension marketplace */
+.ext-marketplace{padding:3px 0 14px;border-bottom:1px solid var(--line)}
+.ext-market-heading,.ext-subheading{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:650;color:var(--ink)}
+.ext-market-source{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:500;color:var(--muted)}
+.ext-market-search{display:flex;gap:7px;margin:10px 0 7px}
+.ext-market-search input{flex:1;min-width:0}
+.ext-market-status{min-height:16px;color:var(--muted);font-size:11px;padding:2px 1px}
+.ext-market-results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:5px 0 2px}
+.ext-market-card{display:flex;align-items:center;gap:7px;padding:7px;border:1px solid var(--line);border-radius:8px;background:var(--bg);min-width:0;min-height:52px}
+.ext-market-card:hover{border-color:color-mix(in srgb,var(--accent) 42%,var(--line))}
+.ext-market-logo{width:29px;height:29px;flex:0 0 29px;display:grid;place-items:center;overflow:hidden;border-radius:6px;background:var(--code);border:1px solid var(--line);font-size:12px;font-weight:700;color:var(--muted)}
+.ext-market-icon{width:100%;height:100%;object-fit:contain}
+.ext-market-title{flex:1;min-width:0;font-size:11px;font-weight:650;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
+.ext-market-card .btn{flex:0 0 auto;min-height:25px;padding:2px 7px;font-size:10px}
+.ext-market-card .btn:disabled{opacity:.75;cursor:default}
+@media(max-width:520px){.ext-market-results{grid-template-columns:1fr}}
+.ext-market-card .btn:disabled{opacity:.75;cursor:default}
+.ext-vscode-installed{padding:12px 0 4px}
+.ext-vsix-installed{display:flex;flex-direction:column;gap:6px;margin-top:7px}
+.ext-vsix-installed-empty{font-size:11px;color:var(--muted);padding:4px 1px}
+.ext-vsix-installed-card{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.ext-vsix-installed-main{flex:1;min-width:0}
+.ext-vsix-installed-name{font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.ext-vsix-installed-meta{font-size:10px;color:var(--muted);margin-top:2px}
+.ext-vsix-installed-commands{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.ext-vsix-installed-commands .btn{min-height:25px;padding:2px 8px;font-size:10.5px}
+.ext-vsix-installed-commands [data-cs-debug]{margin-left:3px}
+.ext-vsix-installed-card .btn.danger{flex:0 0 auto;min-height:26px;padding:2px 8px}
+.ext-codespace-tools{padding-top:14px;border-top:1px solid var(--line);margin-top:12px}
+@media(max-width:520px){.ext-market-card{gap:7px}.ext-market-icon{width:27px;height:27px;flex-basis:27px}.ext-market-card .btn{padding:3px 7px}}
+
+/* 3.18.0 — isolated extension webview surface. The iframe never receives allow-same-origin. */
+.ext-webview-dialog{width:min(980px,94vw);height:min(760px,88vh);max-width:94vw;max-height:88vh;padding:0;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);overflow:hidden;box-shadow:0 22px 80px #0007}
+.ext-webview-dialog::backdrop{background:#0008;backdrop-filter:blur(3px)}
+.ext-webview-head{height:42px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--line);font-size:12px}
+.ext-webview-dialog iframe{display:block;width:100%;height:calc(100% - 42px);border:0;background:#fff}
+
+/* 3.18 extension completion picker */
+.cs-ext-completion-popup{position:fixed;z-index:10050;display:none;min-width:260px;max-width:330px;max-height:210px;overflow:auto;padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 28px #0003}.cs-ext-completion-item{display:block;width:100%;padding:7px 9px;border:0;border-radius:5px;background:transparent;color:var(--ink);text-align:left;font:12px var(--font);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cs-ext-completion-item:hover,.cs-ext-completion-item:focus{background:var(--hover);outline:0}
+/* CodeSpace logo in the menu bar (same mark as the splash and app icons) */
+.mb-brand{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;margin:0 2px 0 -2px}
+.mb-brand svg{width:17px;height:17px;display:block}
+
+/* ===== 3.18.3 composer toolbar =====
+   Row 1:  [Mode] [Model ........................] [Engine]      Row 2:  [+] [Permissions] [Think*] [Saver] ....... [Context]
+   * the Think control exists only for models that support a thinking mode.
+   Every control shares one 26 px pill height. The model name shrinks (ellipsis) before anything can overlap, labels
+   collapse to icons in a narrow chat pane, and wrapping is only the last resort. No status text is shown here. */
+.ctool{display:flex;flex-direction:column;gap:3px;min-width:0;max-width:100%}
+.crow{display:flex;flex-wrap:nowrap!important;align-items:center;gap:4px;padding:0 8px;min-width:0;max-width:100%;white-space:nowrap}
+.crow-top{padding-top:2px;padding-bottom:0}
+.crow-bot{padding-top:0;padding-bottom:8px}
+.crow>*{flex:0 0 auto;min-width:0}
+.crow>.sp{flex:1 1 0;min-width:0}
+.crow #thinkState,.crow #ctxHint{display:none!important}
+.cbox{overflow:visible}
+.sendSlot{position:relative;z-index:1;align-self:stretch}
+
+/* shared pill look */
+.cbox .crow select,.cbox .route-btn,.cbox .crow .modelbtn,.cbox .crow .tgl{
+  height:26px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);
+  font-size:12px;font-weight:500;line-height:1;cursor:pointer;transition:background-color .12s ease,color .12s ease,border-color .12s ease}
+.cbox .crow select:hover:not(:disabled),.cbox .route-btn:hover:not(:disabled),.cbox .crow .modelbtn:hover:not(:disabled),.cbox .crow .tgl:hover:not(:disabled){background:var(--hover);color:var(--ink)}
+.cbox .crow select:disabled,.cbox .route-btn:disabled,.cbox .crow .tgl:disabled{opacity:.5;cursor:not-allowed}
+.cbox .crow select:focus-visible,.cbox .route-btn:focus-visible,.cbox .crow .modelbtn:focus-visible,.cbox .crow .tgl:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.crow select[hidden]{display:none!important}
+
+/* selects: native menu, custom chevron */
+.cbox .crow select{-webkit-appearance:none;appearance:none;padding:0 20px 0 9px;max-width:none;text-overflow:ellipsis;overflow:hidden;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%238b8f98' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 6px center;background-size:10px}
+.cbox .crow select#modeSel{width:auto;min-width:0;color:var(--ink);font-weight:600;background-color:color-mix(in srgb,var(--accent) 11%,transparent)}
+.cbox .crow select#modeSel:hover:not(:disabled){background-color:color-mix(in srgb,var(--accent) 18%,transparent)}
+.cbox .crow select#sandboxSel{max-width:108px;color:var(--ink);font-weight:600;background-color:color-mix(in srgb,var(--accent) 8%,transparent)}
+.cbox .crow select#sandboxSel:hover:not(:disabled){background-color:color-mix(in srgb,var(--accent) 15%,transparent)}
+.cbox .crow select#sandboxSel[data-mode="render"]{color:var(--accent);background-color:color-mix(in srgb,var(--accent) 16%,transparent)}
+.cbox .crow select#thinkSel{flex:0 1 auto;width:auto;min-width:64px;max-width:150px}
+
+/* model: takes the free space, truncates its name */
+.cbox .crow .modelbtn{flex:1 1 0;min-width:44px;max-width:none;justify-content:flex-start;gap:6px;padding:0 8px}
+.cbox .crow .modelbtn .mb-txt{flex:1 1 auto;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis}
+.cbox .crow .modelbtn .mb-chev{margin-left:auto}
+
+/* engine dropdown (CodeSpace / OpenCode / Chat Z.ai) */
+.route-wrap{position:static;display:inline-flex;flex:none}
+.cbox .route-btn{display:inline-flex;align-items:center;gap:6px;padding:0 8px 0 8px;border-color:color-mix(in srgb,var(--line) 80%,transparent);flex:none}
+.route-btn .rt-ico{width:13px;height:13px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.route-btn .rt-txt{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.route-btn .rt-chev{font-size:9px;opacity:.7;flex:none}
+.cbox .route-btn.on{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.route-btn[aria-expanded="true"]{background:var(--hover);color:var(--ink)}
+.route-menu{left:8px;right:auto;bottom:calc(100% + 8px);width:min(284px,calc(100cqw - 16px));max-width:calc(100cqw - 16px);z-index:30}
+.route-head{padding:6px 9px 6px;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.route-menu .perm-option.notready .perm-option-copy b{opacity:.65}
+
+/* row 2: attach / permissions / context ring share the same 26 px square */
+.cbox .crow>#attachBtn,.cbox .crow>#ctxRing,.cbox .crow>#permWrap .perm-btn{width:26px;height:26px;min-width:26px;border-radius:8px}
+.cbox .crow-bot #permWrap .perm-btn{border:1px solid color-mix(in srgb,var(--line) 80%,transparent)}
+.perm-wrap{position:static;z-index:auto}
+.perm-menu{left:8px;right:auto;bottom:calc(100% + 8px);width:min(258px,calc(100cqw - 16px));max-width:calc(100cqw - 16px);z-index:30}
+
+/* saver toggle */
+.cbox .crow .tgl{display:inline-flex;align-items:center;gap:6px;padding:0 8px 0 6px}
+.cbox .crow .tgl.on{color:var(--ink)}
+
+/* narrow chat pane: labels collapse to icons; the model name keeps shrinking first */
+@container composer (max-width:400px){ .cbox .crow select#thinkSel{max-width:122px} }
+@container composer (max-width:340px){
+  .route-btn .rt-txt{display:none}.cbox .route-btn{padding:0 7px}
+  .tgl .lbl{display:none}.cbox .crow .tgl{padding:0 6px}
+  .cbox .crow select#thinkSel{max-width:92px}
+  .cbox .crow select#modeSel{padding-left:7px}
+}
+@container composer (max-width:270px){ .crow{flex-wrap:wrap!important;row-gap:3px} }
+
+/* one-line placeholder: it is cut with an ellipsis instead of wrapping behind the toolbar in a very narrow pane */
+#input::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Android/mobile workspace refinements: keep navigation in menus and the chat tool dock. */
+#chatToolDock{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:5px 10px calc(5px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:var(--bg);flex:none}
+#chatToolDock button{appearance:none;border:1px solid transparent;background:transparent;color:var(--muted);font:500 11px/1.2 var(--sans);padding:6px 9px;border-radius:7px;white-space:nowrap;min-height:28px}
+#chatToolDock button:hover,#chatToolDock button:focus-visible{background:var(--hover);border-color:var(--line);color:var(--ink);outline:none}
+#chatToolDock button[data-tool="folder"]{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 28%,var(--line))}
+/* The composer must reflow instead of allowing the controls to paint over one another. */
+#composer{min-width:0}
+.cbox{min-width:0;display:flex;flex-direction:column}
+.cbox>textarea#input{display:block;box-sizing:border-box;width:100%;max-width:100%;min-width:0;resize:none;overflow-y:auto}
+.ctool{min-width:0;max-width:100%;overflow:visible}
+.crow{box-sizing:border-box;min-width:0;max-width:100%;gap:4px}
+.crow-top select#provQuick{max-width:min(38cqw,150px)}
+.crow-bot{flex-wrap:wrap!important;row-gap:4px!important;padding-bottom:7px}
+.crow-bot>.sp{display:none}
+.crow-bot #thinkSel{max-width:108px}
+.sendSlot{display:flex;align-items:center;justify-content:center;flex:none;margin:0 7px 7px 3px}
+#bview,#bview *{touch-action:pan-x pan-y}
+#bview{flex:1 1 auto;min-height:240px;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;align-items:stretch;justify-content:stretch}
+#bFrame{display:block;width:100%;height:100%;min-height:100%;flex:1 1 auto;border:0;touch-action:pan-x pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+#bp{min-height:0;min-width:0;overscroll-behavior:contain}
+@media(max-width:900px){
+  #activity{display:none!important}
+  #app{padding-top:env(safe-area-inset-top,0px)}
+  #menubar{height:34px;min-height:34px;gap:2px;padding:0 5px;overflow-x:auto;overscroll-behavior-x:contain}
+  .mb-title{padding:0 8px!important;font-size:12px!important}
+  #chatToolDock{gap:3px;padding-left:7px;padding-right:7px}
+  #chatToolDock button{padding:5px 7px;font-size:10.5px}
+  #chatHead{gap:5px;padding:6px 8px}
+  #chatHead .btn{padding:4px 6px;font-size:10px}
+  #composer{padding:6px 7px 5px}
+  .cbox{border-radius:11px}
+  .crow-top,.crow-bot{padding-left:6px;padding-right:6px}
+  .crow-top{flex-wrap:wrap!important}
+  .crow-top select#provQuick{max-width:42vw}
+  .sendSlot{margin-right:4px;margin-bottom:5px}
+  #chat{padding:10px 10px 12px;scroll-padding-bottom:16px}
+}
+@media(max-width:420px){
+  .crow-top{gap:3px}
+  .crow-top select#provQuick{max-width:36vw}
+  .crow-bot #thinkSel{max-width:86px;min-width:58px}
+  .crow-bot .tgl{padding-left:4px;padding-right:4px}
+  #chatToolDock button{padding:5px 6px}
+}
+/* Keep the send/stop rail beside (not on top of) the composer on every screen width. */
+#composer{display:grid;grid-template-columns:minmax(0,1fr) 38px;align-items:stretch;column-gap:6px;row-gap:0}
+#composer>.cbox{grid-column:1;grid-row:1;min-width:0;width:100%}
+#composer>.sendSlot{grid-column:2;grid-row:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;min-width:0;padding:0 2px 7px;margin:0}
+#composer>#attachDropHint,#composer>#ctxPop{grid-column:1/-1}
+@media(max-width:900px){#composer{grid-template-columns:minmax(0,1fr) 36px;column-gap:5px}}

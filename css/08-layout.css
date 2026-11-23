@@ -234,4 +234,4 @@ html[data-theme="dark"]{
    Make the browser dock actually occupy the workspace so the native WebView bounds follow it. */
 html.browser-fs #bp{position:fixed;left:0;right:0;top:0;bottom:0;z-index:90000;padding:0;gap:0;background:var(--bg)}
 html.browser-fs #bview{border:0;border-radius:0;min-height:0}
-html.browser-fs #bview .chrome-ui{border-radius:0}
+html.browser-fs .chrome-ui{border-radius:0}

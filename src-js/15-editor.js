@@ -499,10 +499,15 @@ function browserOverlayOpen() {
   } catch {}
   return false;
 }
-/* Would the native view be on screen if no menu/dialog were open? (everything except overlays) */
-function browserPanelShown() {
+/* Is the preview panel selected at all, regardless of transient layout/overlay state? */
+function browserPanelActive() {
   if (!INTEGRATED_BROWSER || browserRenderMode !== 'embedded') return false;
   if (activeTab !== 'preview' || $('bp').hidden) return false;
+  return true;
+}
+/* Would the native view be on screen if no menu/dialog were open? (everything except overlays) */
+function browserPanelShown() {
+  if (!browserPanelActive()) return false;
   const r = visibleBrowserRect($('bview'));
   return r.width > 1 && r.height > 1;
 }
@@ -536,10 +541,15 @@ function visibleBrowserRect(el) {
     const vv = window.visualViewport, vx = vv.offsetLeft || 0, vy = vv.offsetTop || 0;
     clip(vx, vy, vx + vv.width, vy + vv.height);
   }
-  for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
-    const cs = getComputedStyle(a);
-    if (cs.display === 'none') return { x: l, y: t, width: 0, height: 0 };
-    if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') { const ar = a.getBoundingClientRect(); clip(ar.left, ar.top, ar.right, ar.bottom); }
+  // In fullscreen the preview is fixed to the viewport; clipping it to scrollable/overflowing
+  // ancestors made the rect collapse to zero and hid the native browser on every resize/tap.
+  const fullscreenBrowser = document.documentElement.classList.contains('browser-fs') && el === $('bview');
+  if (!fullscreenBrowser) {
+    for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if (cs.display === 'none') return { x: l, y: t, width: 0, height: 0 };
+      if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') { const ar = a.getBoundingClientRect(); clip(ar.left, ar.top, ar.right, ar.bottom); }
+    }
   }
   return { x: l, y: t, width: Math.max(0, rt - l), height: Math.max(0, b - t), full: r0 };
 }
@@ -576,15 +586,50 @@ function syncNativeBrowserBounds(force) {
   browser.setVisible(visible).then(() => { if (visible) requestAnimationFrame(clearNativeSnapshot); }).catch(() => {});
   if (!overlay) { if (!visible) clearNativeSnapshot(); }
 }
+let lastAndroidSync = { x: -1, y: -1, width: -1, height: -1, visible: false, valid: false };
+let androidSnapBusy = false;
+async function captureAndroidBrowserSnapshot(bounds) {
+  if (androidSnapBusy) return;
+  androidSnapBusy = true;
+  try {
+    const r = await bcall('/bridge/call', { action: 'screenshot', args: {}, timeoutMs: 12000 }, null, 15000);
+    const image = r && (r.image || (r.result && r.result.image));
+    if (!image) return;
+    if (browserOverlayOpen()) showNativeSnapshot(image, bounds);
+    else clearNativeSnapshot();
+  } catch {}
+  finally { androidSnapBusy = false; }
+}
 function syncAndroidBrowserBounds() {
   if (!ANDROID_NATIVE_BROWSER) return;
   const host = $('bview'); if (!host) return;
+  const panel = browserPanelActive(), overlay = panel && browserOverlayOpen();
   const vr = visibleBrowserRect(host), r = vr.full || host.getBoundingClientRect();
-  const shown = browserPanelShown(), visible = shown && !browserOverlayOpen();
-  const x = Math.max(r.left, vr.x), y = Math.max(r.top, vr.y);
-  const right = Math.min(r.right, vr.x + vr.width), bottom = Math.min(r.bottom, vr.y + vr.height);
-  const width = Math.max(0, right - x), height = Math.max(0, bottom - y);
-  try { window.CodeSpaceNative.setBrowserBounds(Math.round(x), Math.round(y), Math.round(width), Math.round(height), visible && width > 1 && height > 1); } catch {}
+  let x = Math.max(r.left, vr.x), y = Math.max(r.top, vr.y);
+  let right = Math.min(r.right, vr.x + vr.width), bottom = Math.min(r.bottom, vr.y + vr.height);
+  let width = Math.max(0, right - x), height = Math.max(0, bottom - y);
+  // A resize, keyboard shift or transient zero-size layout must never blank the page. Reuse the
+  // last known-good rectangle until the panel is really closed or another tab is selected.
+  if (panel && !(width > 1 && height > 1) && lastAndroidSync.valid && lastAndroidSync.width > 1 && lastAndroidSync.height > 1) {
+    x = lastAndroidSync.x; y = lastAndroidSync.y; width = lastAndroidSync.width; height = lastAndroidSync.height;
+  }
+  const cur = {
+    x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height),
+    visible: panel && !overlay && width > 1 && height > 1,
+    valid: width > 1 && height > 1
+  };
+  if (cur.x === lastAndroidSync.x && cur.y === lastAndroidSync.y && cur.width === lastAndroidSync.width &&
+      cur.height === lastAndroidSync.height && cur.visible === lastAndroidSync.visible && cur.valid === lastAndroidSync.valid) return;
+  const wasVisible = lastAndroidSync.visible === true;
+  lastAndroidSync = cur;
+  if (cur.visible) {
+    try { window.CodeSpaceNative.setBrowserBounds(cur.x, cur.y, cur.width, cur.height, true); } catch {}
+    requestAnimationFrame(() => { if (lastAndroidSync.visible) clearNativeSnapshot(); });
+    return;
+  }
+  if (overlay && wasVisible && panel) captureAndroidBrowserSnapshot({ x: cur.x, y: cur.y, width: cur.width, height: cur.height });
+  try { window.CodeSpaceNative.setBrowserBounds(cur.x, cur.y, cur.width, cur.height, false); } catch {}
+  if (!panel) clearNativeSnapshot();
 }
 function syncIntegratedBrowserBounds() {
   if (DESKTOP_EMBED) syncNativeBrowserBounds();
@@ -819,6 +864,12 @@ if ($('bGo')) {
 }
 if ($('bAddr')) {
   $('bAddr').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('bGo')?.click(); } });
+}
+if ($('bAttach')) {
+  $('bAttach').onclick = () => {
+    if (ANDROID_NATIVE_BROWSER && window.CodeSpaceNative?.attachBrowserSelection) window.CodeSpaceNative.attachBrowserSelection();
+    else if ($('bStreamStatus')) $('bStreamStatus').textContent = 'Attach is available in the Android integrated browser.';
+  };
 }
 if ($('bBack')) {
   $('bBack').onclick = () => {

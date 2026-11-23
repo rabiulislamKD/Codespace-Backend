@@ -1,0 +1,237 @@
+/* 3.19.0 layout + visual refresh
+   Top to bottom: title bar, menu bar, workspace toolbar, editor/browser, chat, then terminal and status bar. */
+
+/* ---------- palette: ink-navy surfaces, one blue accent ---------- */
+:root{
+  --bg:#ffffff; --side:#f5f7fa; --act:#eef1f6; --tabbg:#eef1f6; --line:#dfe4ec; --ink:#18212f; --muted:#5b6778;
+  --accent:#0a62d0; --input:#ffffff; --code:#f3f6fa; --hover:#e6ecf5; --sel:#dbe8fb;
+  --status-bg:#e7ecf3; --status-ink:#2a3547; --user-bg:#edf3fc; --term-bg:#0f1621; --term-ink:#d3dbe8;
+  --chrome:#f0f3f8; --glow:#2f81f0; --r-ctl:8px; --r-card:12px;
+  --tb-h:38px; --mb-h:30px; --tool-h:42px; --sb-h:24px;
+}
+html[data-theme="dark"]{
+  --bg:#111824; --side:#0d1420; --act:#0d1420; --tabbg:#0d1420; --line:#1d2839; --ink:#dce5f1; --muted:#8c9bb1;
+  --accent:#2f81f0; --input:#182234; --code:#0f1722; --hover:#192435; --sel:#12345c;
+  --term-bg:#0a0f18; --term-ink:#cfd8e6; --status-bg:#0a101a; --status-ink:#aab7ca; --user-bg:#16233a; --chrome:#0a101a;
+}
+@media (prefers-color-scheme:dark){
+  html[data-theme="auto"]{
+    --bg:#111824; --side:#0d1420; --act:#0d1420; --tabbg:#0d1420; --line:#1d2839; --ink:#dce5f1; --muted:#8c9bb1;
+    --accent:#2f81f0; --input:#182234; --code:#0f1722; --hover:#192435; --sel:#12345c;
+    --term-bg:#0a0f18; --term-ink:#cfd8e6; --status-bg:#0a101a; --status-ink:#aab7ca; --user-bg:#16233a; --chrome:#0a101a;
+  }
+}
+:root{--menu-bg:var(--chrome)}
+
+/* ---------- grid: six stacked rows ---------- */
+#app{grid-template-rows:auto auto auto minmax(0,1fr) auto auto}
+#titlebar{grid-column:1/-1;grid-row:1}
+#menubar{grid-column:1/-1;grid-row:2}
+#chatToolDock{grid-column:1/-1;grid-row:3}
+#activity,#side,#sideSplit,#work,#split,#chatPane{grid-row:4}
+#termPanel{grid-column:1/-1;grid-row:5}
+#termPanel[hidden]{display:none}
+#statusbar{grid-column:1/-1;grid-row:6}
+
+/* ---------- title bar ---------- */
+#titlebar{display:flex;align-items:center;gap:10px;height:var(--tb-h);padding:0 10px 0 12px;background:var(--chrome);border-bottom:1px solid var(--line);user-select:none;min-width:0}
+.tb-brand{display:inline-flex;width:20px;height:20px;flex:none;filter:drop-shadow(0 0 8px color-mix(in srgb,var(--glow) 45%,transparent))}
+.tb-brand svg{width:100%;height:100%}
+.tb-name{font-weight:650;font-size:13px;letter-spacing:-.01em;color:var(--ink);flex:none}
+.tb-center{flex:1;min-width:0;display:flex;justify-content:center;align-items:center;gap:8px;font-size:12px;color:var(--muted);overflow:hidden;white-space:nowrap}
+.tb-center span{overflow:hidden;text-overflow:ellipsis;min-width:0}
+#tbChat{color:var(--ink)}
+.tb-slash{opacity:.5;flex:none}
+.tb-right{display:flex;align-items:center;gap:6px;flex:none}
+.tb-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);opacity:.55}
+.tb-dot[data-state="on"]{background:var(--ok);opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 22%,transparent)}
+.tb-btn{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:var(--r-ctl);background:transparent;color:var(--muted);cursor:pointer}
+.tb-btn:hover{background:var(--hover);color:var(--ink)}
+.tb-btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.tb-btn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- menu bar ---------- */
+#menubar{height:var(--mb-h);min-height:var(--mb-h);background:var(--chrome);padding:0 8px}
+#menubar .mb-brand{display:none}
+.mb-title{border-radius:6px;color:var(--muted)}
+.mb-title:hover,.mb-title.open{color:var(--ink);background:var(--hover)}
+
+/* ---------- workspace toolbar (the one deliberate flourish) ---------- */
+#chatToolDock{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;height:var(--tool-h);padding:0 10px;background:var(--side);border-top:0;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none;overscroll-behavior-x:contain}
+#chatToolDock::-webkit-scrollbar{display:none}
+#chatToolDock button{display:inline-flex;align-items:center;gap:7px;flex:none;height:30px;min-height:30px;padding:0 11px;border:1px solid transparent;border-radius:var(--r-ctl);background:transparent;color:var(--muted);font:550 12px/1 var(--sans,system-ui,sans-serif);transition:background .12s ease,color .12s ease,border-color .12s ease}
+#chatToolDock button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+#chatToolDock button:hover,#chatToolDock button:focus-visible{background:var(--hover);color:var(--ink);border-color:var(--line);outline:none}
+#chatToolDock button.on{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--ink);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+#chatToolDock button.on svg{color:var(--accent)}
+#chatToolDock button[data-tool="folder"]{background:linear-gradient(135deg,#3f95ff,#2263dc);color:#fff;border-color:transparent;box-shadow:0 1px 0 rgba(255,255,255,.22) inset,0 6px 14px -8px var(--glow);margin-right:6px}
+#chatToolDock button[data-tool="folder"]:hover,#chatToolDock button[data-tool="folder"]:focus-visible{filter:brightness(1.08);color:#fff;border-color:transparent}
+
+/* ---------- editor and tabs ---------- */
+#tabs{background:var(--tabbg);min-height:36px}
+.tab{padding:0 8px 0 14px;min-height:36px;border-right:1px solid color-mix(in srgb,var(--line) 70%,transparent);font-size:12.5px}
+.tab.on{background:var(--bg);box-shadow:inset 0 2px 0 var(--accent)}
+#editorBody{background:var(--bg)}
+#tabs:empty+#editorBody:not(:has(>:not([hidden])))::before{content:"Open a folder or a file to start editing.";display:grid;place-items:center;height:100%;color:var(--muted);font-size:13px}
+.vh{text-transform:none;letter-spacing:0;font-weight:650;font-size:12.5px}
+
+/* ---------- chat ---------- */
+#chatPane{background:var(--bg);border-left:1px solid var(--line)}
+#chatHead{padding:8px 12px;background:var(--bg)}
+#chatHead .ctag{display:none}
+#chatHead .title{font-weight:600}
+#chatHead .btn{border-radius:var(--r-ctl);background:transparent;border-color:var(--line);color:var(--muted)}
+#chatHead .btn:hover{color:var(--ink);background:var(--hover)}
+.cbox{border-radius:14px;border:1px solid var(--line);background:var(--input);box-shadow:0 8px 24px -16px rgba(0,0,0,.5)}
+.cbox:focus-within{border-color:color-mix(in srgb,var(--accent) 60%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+#sendBtn{background:linear-gradient(135deg,#3f95ff,#2263dc);color:#fff;border:0;box-shadow:0 6px 14px -8px var(--glow)}
+#sendBtn:hover{filter:brightness(1.1)}
+
+/* ---------- terminal (bottom, full width) ---------- */
+#termPanel{height:min(var(--termh,260px),60vh);border-top:1px solid var(--line)}
+.term-label{font-size:12px;font-weight:650;color:var(--ink);margin-right:8px}
+#devWorkflow .wf-title{letter-spacing:0}
+
+/* ---------- status bar ---------- */
+#statusbar{background:var(--status-bg);border-top:1px solid var(--line);height:var(--sb-h);font-size:12px;gap:2px;padding:0 6px;overflow-x:auto;scrollbar-width:none}
+#statusbar::-webkit-scrollbar{display:none}
+#statusbar button{flex:none;height:var(--sb-h);border-radius:5px}
+#statusbar .sp{flex:1 0 8px}
+#sbModel{flex:0 1 auto!important;min-width:0;max-width:34vw;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- dividers ---------- */
+#split{background:var(--line)}
+
+/* ---------- phones and narrow windows: strict vertical order ---------- */
+@media(max-width:900px){
+  #app{display:flex;flex-direction:column}
+  #titlebar,#menubar,#chatToolDock,#termPanel,#statusbar{flex:none}
+  #menubar{height:34px;min-height:34px}
+  .tb-center{justify-content:flex-start}
+  #side{top:calc(env(safe-area-inset-top,0px) + var(--tb-h) + 34px + var(--tool-h));bottom:var(--sb-h)}
+  /* Code viewer fills the space above the chat. */
+  #work{flex:1 1 0;min-height:110px}
+  #sbModel{flex:none!important;max-width:none}
+  /* Thin, draggable divider between code viewer and chat. */
+  #split{display:block;flex:none;height:1px;min-height:1px;cursor:row-resize;background:color-mix(in srgb,var(--line) 65%,transparent);touch-action:none;position:relative;z-index:5}
+  #split::after{content:'';position:absolute;left:0;right:0;top:-10px;bottom:-10px}
+  #split:hover,#split.dragging{background:var(--accent)}
+  /* Chat box is resized by the divider, but its bottom edge (and composer) stays pinned to
+     the bottom of the screen: it grows/shrinks from its top only, never shifts position. */
+  #chatPane{flex:0 0 var(--chath,clamp(240px,40vh,420px));min-height:0;overflow:hidden;border-left:0;border-top:0;margin-top:auto}
+  #termPanel{height:min(var(--termh,200px),26vh)}
+  #chatToolDock{padding:0 8px}
+  #chatToolDock button{padding:0 9px}
+  #chatToolDock button[data-tool="folder"]{margin-right:2px}
+  .tb-name{display:none}
+}
+@media(max-width:420px){
+  #chatToolDock button span{font-size:11.5px}
+}
+@media(prefers-reduced-motion:reduce){#chatToolDock button,.tab{transition:none}}
+
+/* =====================================================================
+   3.19.0-android-v21 compact chrome
+   Keep every horizontal bar shallow on a phone, and keep the composer
+   labels (Agent, model, sandbox, CodeSpace) readable without stealing a
+   second row. The send button stays in the card's bottom-right corner.
+   ===================================================================== */
+:root{--tb-h:32px;--mb-h:26px;--tool-h:34px;--sb-h:20px}
+#titlebar{gap:6px;height:var(--tb-h);padding:0 6px 0 8px}
+.tb-brand{width:16px;height:16px}
+.tb-name{font-size:11.5px}
+.tb-center{font-size:10.5px;gap:5px}
+.tb-btn{width:24px;height:24px}
+.tb-btn svg{width:14px;height:14px}
+#menubar{height:var(--mb-h);min-height:var(--mb-h);padding:0 4px}
+.mb-title{padding:0 6px!important;font-size:11px!important}
+#chatToolDock{height:var(--tool-h);padding:0 6px;gap:3px}
+#chatToolDock button{height:26px;min-height:26px;padding:0 7px;font-size:10.5px;gap:4px}
+#chatToolDock button svg{width:14px;height:14px}
+#statusbar{height:var(--sb-h);font-size:10px;padding:0 4px}
+#statusbar button{height:var(--sb-h)}
+#chatHead{padding:4px 7px;gap:4px}
+#chatHead .title{font-size:11.5px}
+#chatHead .btn{padding:2px 5px;font-size:9.5px}
+#tabs{min-height:30px}
+.tab{min-height:30px;font-size:11px;padding:0 6px 0 9px}
+/* Chat box fills the full composer width; no empty gutter on the right. */
+#composer{display:block;padding:3px 4px 4px}
+#composer>.cbox{border-radius:11px;position:relative;width:100%}
+#composer textarea#input{padding:10px 46px 6px 10px;min-height:54px;font-size:13.5px;line-height:1.45}
+#composer .ctool{gap:1px}
+#composer .crow{gap:2px;padding-left:5px;padding-right:5px}
+#composer .crow-top{padding-top:0;padding-bottom:0}
+#composer .crow-bot{padding-bottom:5px;padding-right:44px}
+#composer .cbox .crow select,
+#composer .cbox .route-btn,
+#composer .cbox .crow .modelbtn,
+#composer .cbox .crow .tgl{height:22px;font-size:10.5px;border-radius:6px}
+#composer .cbox .crow select{padding:0 16px 0 6px;background-position:right 4px center;background-size:8px}
+#composer .cbox .crow select#modeSel{max-width:58px;padding-left:6px}
+#composer .cbox .crow select#provQuick{max-width:min(31cqw,110px)}
+#composer .cbox .crow select#sandboxSel{max-width:82px}
+#composer .cbox .crow select#sandboxSel[data-mode="github"]{color:#2ea043;background-color:color-mix(in srgb,#2ea043 14%,transparent)}
+/* Compact composer selectors: Agent / Model / Server / engine stay small and on one row. */
+#composer .cbox .crow select,
+#composer .cbox .route-btn,
+#composer .cbox .crow .modelbtn,
+#composer .cbox .crow .tgl{height:20px;min-height:20px;font-size:9.5px;border-radius:5px}
+#composer .cbox .crow select{padding:0 14px 0 5px;background-size:7px}
+#composer .cbox .crow select#modeSel{max-width:50px;padding-left:5px}
+#composer .cbox .crow select#provQuick{max-width:min(26cqw,92px)}
+#composer .cbox .crow select#sandboxSel{max-width:64px}
+#composer .cbox .route-btn{padding:0 5px;gap:3px}
+#composer .route-btn .rt-ico{width:10px;height:10px}
+#composer .route-btn .rt-txt{font-size:9px}
+#composer .cbox .crow .tgl{padding:0 5px}
+#composer .cbox .crow>#attachBtn,
+#composer .cbox .crow>#ctxRing,
+#composer .cbox .crow>#permWrap .perm-btn{width:20px;height:20px;min-width:20px;border-radius:6px}
+#composer .route-btn .rt-ico{width:11px;height:11px}
+#composer .route-btn .rt-txt{font-size:10px}
+#composer .cbox .crow .modelbtn{padding:0 6px;gap:4px}
+#composer .cbox .crow>#attachBtn,
+#composer .cbox .crow>#ctxRing,
+#composer .cbox .crow>#permWrap .perm-btn{width:22px;height:22px;min-width:22px;border-radius:7px}
+#composer .crow-bot #permWrap .perm-btn{width:22px;height:22px;min-width:22px}
+/* Send/stop buttons sit INSIDE the chat box, pinned to the bottom-right corner. */
+#composer .cbox>.sendSlot{position:absolute;right:6px;bottom:5px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;padding:0;margin:0;z-index:2}
+#composer .cbox>.sendSlot .sbtn{width:32px;height:32px;border-radius:9px}
+#composer .cbox>.sendSlot .sbtn svg{width:16px;height:16px}
+.chrome-ui{background:var(--tabbg)}
+.chrome-tabstrip{height:27px;min-height:27px;padding:0 6px;gap:5px}
+.chrome-tabactive{height:21px;min-width:0;max-width:72%;padding:0 6px;font-size:10.5px}
+.chrome-favicon{font-size:10px}
+#bTabClose{width:17px;height:17px;font-size:12px}
+.chrome-navbtn{width:24px;height:24px;font-size:13px}
+#bp .diagbar{padding:2px 5px;gap:3px}
+#bp .diagbar .btn{height:22px;padding:0 6px;font-size:9.5px}
+#bFrameHint,#bInfo{font-size:9.5px;margin:2px 4px}
+@media(max-width:900px){
+  #menubar{height:var(--mb-h);min-height:var(--mb-h)}
+  #side{top:calc(env(safe-area-inset-top,0px) + var(--tb-h) + var(--mb-h) + var(--tool-h))}
+  #chatToolDock{padding:0 6px}
+  #chatToolDock button{padding:0 6px}
+  #composer{padding:3px 4px 4px}
+  #composer .crow-top{padding-left:5px;padding-right:5px}
+  #composer .crow-top{flex-wrap:nowrap!important}
+  #composer .cbox .crow select#provQuick{max-width:min(26cqw,92px)}
+  #composer .crow-bot{padding-right:44px}
+  #composer .cbox>.sendSlot .sbtn{width:32px;height:32px}
+}
+
+/* v47.3: touch/IME safety. With Android adjustResize the WebView shrinks when the soft keyboard
+   opens; keep the app inside the visible viewport and let the transcript scroll instead of being
+   clipped behind the keyboard. */
+@media (pointer: coarse){
+  #app{height:100dvh}
+  #chatPane{min-height:0;max-height:62dvh}
+  #chat{overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+}
+
+/* v47.3: the JS toggles html.browser-fs for the maximize button, but no CSS implemented it.
+   Make the browser dock actually occupy the workspace so the native WebView bounds follow it. */
+html.browser-fs #bp{position:fixed;left:0;right:0;top:0;bottom:0;z-index:90000;padding:0;gap:0;background:var(--bg)}
+html.browser-fs #bview{border:0;border-radius:0;min-height:0}
+html.browser-fs .chrome-ui{border-radius:0}
